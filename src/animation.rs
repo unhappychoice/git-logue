@@ -35,10 +35,15 @@ pub struct EditorBuffer {
     pub cursor_col: usize,
     pub scroll_offset: usize,
     pub cached_highlights: Vec<crate::syntax::HighlightSpan>,
-    /// Track which line is being edited and its byte offset change since last highlight update
-    pub editing_line: Option<usize>,
-    pub editing_insert_byte_position: usize, // Byte position within line where insertion started
-    pub editing_line_byte_offset: isize,     // Cumulative byte offset from insertion start
+    /// Pre-calculated highlights for old and new content
+    pub old_highlights: Vec<crate::syntax::HighlightSpan>,
+    pub new_highlights: Vec<crate::syntax::HighlightSpan>,
+    /// Store old and new content for byte offset calculation
+    pub old_content_lines: Vec<String>,
+    pub new_content_lines: Vec<String>,
+    /// Pre-calculated byte offsets for each line (handles CRLF correctly)
+    pub old_content_line_offsets: Vec<usize>,
+    pub new_content_line_offsets: Vec<usize>,
 }
 
 impl EditorBuffer {
@@ -49,9 +54,12 @@ impl EditorBuffer {
             cursor_col: 0,
             scroll_offset: 0,
             cached_highlights: Vec::new(),
-            editing_line: None,
-            editing_insert_byte_position: 0,
-            editing_line_byte_offset: 0,
+            old_highlights: Vec::new(),
+            new_highlights: Vec::new(),
+            old_content_lines: Vec::new(),
+            new_content_lines: Vec::new(),
+            old_content_line_offsets: Vec::new(),
+            new_content_line_offsets: Vec::new(),
         }
     }
 
@@ -68,9 +76,12 @@ impl EditorBuffer {
             cursor_col: 0,
             scroll_offset: 0,
             cached_highlights: Vec::new(),
-            editing_line: None,
-            editing_insert_byte_position: 0,
-            editing_line_byte_offset: 0,
+            old_highlights: Vec::new(),
+            new_highlights: Vec::new(),
+            old_content_lines: Vec::new(),
+            new_content_lines: Vec::new(),
+            old_content_line_offsets: Vec::new(),
+            new_content_line_offsets: Vec::new(),
         }
     }
 
@@ -131,10 +142,10 @@ pub enum AnimationStep {
     },
     SwitchFile {
         file_index: usize,
-        content: String,
+        old_content: String,
+        new_content: String,
         path: String,
     },
-    UpdateHighlights,
     TerminalPrompt,
     TerminalTypeChar {
         ch: char,
@@ -177,6 +188,8 @@ pub struct AnimationEngine {
     pub terminal_lines: Vec<String>,
     pub active_pane: ActivePane,
     pub highlighter: RefCell<Highlighter>,
+    /// Track cumulative line offset from old_content (insertions - deletions)
+    pub line_offset: isize,
 }
 
 impl AnimationEngine {
@@ -198,6 +211,7 @@ impl AnimationEngine {
             terminal_lines: Vec::new(),
             active_pane: ActivePane::Terminal, // Start with terminal (git checkout)
             highlighter: RefCell::new(Highlighter::new()),
+            line_offset: 0,
         }
     }
 
@@ -205,10 +219,16 @@ impl AnimationEngine {
         self.viewport_height = height;
     }
 
-    /// Update syntax highlighting for current buffer
-    fn update_buffer_highlights(&mut self) {
-        let full_content = self.buffer.lines.join("\n");
-        self.buffer.cached_highlights = self.highlighter.borrow_mut().highlight(&full_content);
+    fn calculate_line_offsets(content: &str) -> Vec<usize> {
+        std::iter::once(0)
+            .chain(content.bytes().enumerate().filter_map(|(i, b)| {
+                if b == b'\n' {
+                    Some(i + 1)
+                } else {
+                    None
+                }
+            }))
+            .collect()
     }
 
     /// Add a terminal command with typing animation
@@ -279,16 +299,15 @@ impl AnimationEngine {
                 duration_ms: (self.speed_ms as f64 * OPEN_CMD_PAUSE) as u64,
             });
 
-            // Add file switch step
-            let content = change.old_content.clone().unwrap_or_default();
+            // Add file switch step with both old and new content
+            let old_content = change.old_content.clone().unwrap_or_default();
+            let new_content = change.new_content.clone().unwrap_or_default();
             self.steps.push(AnimationStep::SwitchFile {
                 file_index: index,
-                content: content.clone(),
+                old_content,
+                new_content,
                 path: change.path.clone(),
             });
-
-            // Update highlights for the new file
-            self.steps.push(AnimationStep::UpdateHighlights);
 
             // Add pause before starting file animation
             self.steps.push(AnimationStep::Pause {
@@ -483,8 +502,6 @@ impl AnimationEngine {
                     // Delete the entire line at current buffer position
                     self.steps
                         .push(AnimationStep::DeleteLine { line: buffer_line });
-                    // Update highlights after line deletion
-                    self.steps.push(AnimationStep::UpdateHighlights);
                     self.steps.push(AnimationStep::Pause {
                         duration_ms: (self.speed_ms as f64 * DELETE_LINE_PAUSE) as u64,
                     });
@@ -499,10 +516,6 @@ impl AnimationEngine {
                         content: String::new(),
                     });
 
-                    // Update highlights immediately after inserting empty line
-                    // This ensures highlights for lines below are shifted correctly
-                    self.steps.push(AnimationStep::UpdateHighlights);
-
                     // Type each character
                     for (col, ch) in line_change.content.chars().enumerate() {
                         self.steps.push(AnimationStep::InsertChar {
@@ -515,8 +528,6 @@ impl AnimationEngine {
                     cursor_line = buffer_line;
                     buffer_line += 1; // Move to next line after insertion
 
-                    // Update highlights again after line is completely typed
-                    self.steps.push(AnimationStep::UpdateHighlights);
                     self.steps.push(AnimationStep::Pause {
                         duration_ms: (self.speed_ms as f64 * INSERT_LINE_PAUSE) as u64,
                     });
@@ -598,23 +609,9 @@ impl AnimationEngine {
         match step {
             AnimationStep::InsertChar { line, col, ch } => {
                 self.active_pane = ActivePane::Editor;
-
-                // Calculate byte position before insertion
-                if self.buffer.editing_line != Some(line) {
-                    // Starting edit on new line - calculate insertion byte position
-                    let line_str = &self.buffer.lines[line];
-                    let byte_pos = line_str.chars().take(col).map(|c| c.len_utf8()).sum();
-                    self.buffer.editing_line = Some(line);
-                    self.buffer.editing_insert_byte_position = byte_pos;
-                    self.buffer.editing_line_byte_offset = 0;
-                }
-
                 self.buffer.insert_char(line, col, ch);
                 self.buffer.cursor_line = line;
                 self.buffer.cursor_col = col + 1;
-
-                // Track editing offset for highlight adjustment
-                self.buffer.editing_line_byte_offset += ch.len_utf8() as isize;
             }
             AnimationStep::InsertLine { line, content } => {
                 self.active_pane = ActivePane::Editor;
@@ -622,16 +619,17 @@ impl AnimationEngine {
                 self.buffer.cursor_line = line;
                 self.buffer.cursor_col = 0;
 
-                // Reset editing offset for new line (insertion starts at position 0)
-                self.buffer.editing_line = Some(line);
-                self.buffer.editing_insert_byte_position = 0;
-                self.buffer.editing_line_byte_offset = 0;
+                // Track line offset for old_highlights mapping
+                self.line_offset += 1;
             }
             AnimationStep::DeleteLine { line } => {
                 self.active_pane = ActivePane::Editor;
                 self.buffer.delete_line(line);
                 self.buffer.cursor_line = line;
                 self.buffer.cursor_col = 0;
+
+                // Track line offset for old_highlights mapping
+                self.line_offset -= 1;
             }
             AnimationStep::MoveCursor { line, col } => {
                 self.active_pane = ActivePane::Editor;
@@ -643,26 +641,45 @@ impl AnimationEngine {
             }
             AnimationStep::SwitchFile {
                 file_index,
-                content,
+                old_content,
+                new_content,
                 path,
             } => {
                 self.active_pane = ActivePane::Editor;
                 // Switch to new file
                 self.current_file_index = file_index;
                 self.current_file_path = Some(path.clone());
-                self.buffer = EditorBuffer::from_content(&content);
+                self.buffer = EditorBuffer::from_content(&old_content);
 
                 // Update syntax highlighter for new file
                 // This will clear language settings if not supported
                 self.highlighter.borrow_mut().set_language_from_path(&path);
-            }
-            AnimationStep::UpdateHighlights => {
-                self.active_pane = ActivePane::Editor;
-                self.update_buffer_highlights();
-                // Reset editing offset after highlight update
-                self.buffer.editing_line = None;
-                self.buffer.editing_insert_byte_position = 0;
-                self.buffer.editing_line_byte_offset = 0;
+
+                // Pre-calculate highlights for both old and new content
+                self.buffer.old_highlights = self.highlighter.borrow_mut().highlight(&old_content);
+                self.buffer.new_highlights = self.highlighter.borrow_mut().highlight(&new_content);
+
+                // Store content lines for byte offset calculation
+                self.buffer.old_content_lines = if old_content.is_empty() {
+                    vec![String::new()]
+                } else {
+                    old_content.lines().map(|s| s.to_string()).collect()
+                };
+                self.buffer.new_content_lines = if new_content.is_empty() {
+                    vec![String::new()]
+                } else {
+                    new_content.lines().map(|s| s.to_string()).collect()
+                };
+
+                // Pre-calculate line byte offsets (handles CRLF correctly)
+                self.buffer.old_content_line_offsets = Self::calculate_line_offsets(&old_content);
+                self.buffer.new_content_line_offsets = Self::calculate_line_offsets(&new_content);
+
+                // Initialize cached_highlights with old_highlights
+                self.buffer.cached_highlights = self.buffer.old_highlights.clone();
+
+                // Reset line offset
+                self.line_offset = 0;
             }
             AnimationStep::TerminalPrompt => {
                 self.active_pane = ActivePane::Terminal;

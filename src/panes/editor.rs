@@ -14,186 +14,25 @@ struct HighlightContext<'a> {
     line_num: usize,
     show_cursor: bool,
     cursor_col: usize,
-    highlights: &'a [crate::syntax::HighlightSpan],
-    buffer_lines: &'a [String],
-    editing_line: Option<usize>,
-    editing_insert_byte_position: usize,
-    editing_line_byte_offset: isize,
+    cursor_line: usize,
+    old_highlights: &'a [crate::syntax::HighlightSpan],
+    new_highlights: &'a [crate::syntax::HighlightSpan],
+    old_line_offsets: &'a [usize],
+    new_line_offsets: &'a [usize],
+    line_offset: isize,
 }
 
 impl EditorPane {
-    fn highlight_line(&self, ctx: HighlightContext<'_>) -> Vec<Span<'_>> {
-        let line_content = ctx.line_content;
-        let line_num = ctx.line_num;
-        let show_cursor = ctx.show_cursor;
-        let cursor_col = ctx.cursor_col;
-        let highlights = ctx.highlights;
-        let buffer_lines = ctx.buffer_lines;
-        let editing_line = ctx.editing_line;
-        let editing_insert_byte_position = ctx.editing_insert_byte_position;
-        let editing_line_byte_offset = ctx.editing_line_byte_offset;
-        let mut spans = Vec::new();
-
-        // Calculate byte offset for this line
-        let mut byte_offset = 0;
-        for (i, line) in buffer_lines.iter().enumerate() {
-            if i == line_num {
-                break;
-            }
-            byte_offset += line.len() + 1; // +1 for newline
-        }
-
-        // Calculate editing line's byte offset if needed
-        let editing_line_byte_offset_abs = if let Some(edit_line) = editing_line {
-            if edit_line < line_num {
-                // Current line is after the editing line - need to shift by offset
-                Some(editing_line_byte_offset)
-            } else if edit_line == line_num {
-                // This is the editing line - will handle specially
-                None
-            } else {
-                // Current line is before editing line - no offset needed
-                None
-            }
-        } else {
-            None
-        };
-
-        // Filter highlights for this line and adjust their ranges
-        let line_end = byte_offset + line_content.len();
-        let line_highlights: Vec<_> = highlights
-            .iter()
-            .filter_map(|h| {
-                let adjusted_start;
-                let adjusted_end;
-
-                if editing_line == Some(line_num) {
-                    // This is the line being edited - adjust highlights within this line
-                    let insert_abs_pos = byte_offset + editing_insert_byte_position;
-
-                    // Adjust start position
-                    if h.start >= insert_abs_pos {
-                        // Highlight is after insertion point - shift it
-                        adjusted_start =
-                            (h.start as isize + editing_line_byte_offset).max(0) as usize;
-                    } else {
-                        adjusted_start = h.start;
-                    }
-
-                    // Adjust end position
-                    if h.end > insert_abs_pos {
-                        // Highlight extends past insertion point - shift end
-                        adjusted_end = (h.end as isize + editing_line_byte_offset).max(0) as usize;
-                    } else {
-                        adjusted_end = h.end;
-                    }
-                } else if let Some(offset) = editing_line_byte_offset_abs {
-                    // Line is after editing line - shift entire highlight
-                    adjusted_start = (h.start as isize + offset).max(0) as usize;
-                    adjusted_end = (h.end as isize + offset).max(0) as usize;
-                } else {
-                    // No adjustment needed
-                    adjusted_start = h.start;
-                    adjusted_end = h.end;
-                }
-
-                // Filter to this line
-                if adjusted_start < line_end && adjusted_end > byte_offset {
-                    Some((adjusted_start, adjusted_end, h.token_type))
-                } else {
-                    None
-                }
-            })
-            .collect();
-
-        if show_cursor {
-            // Apply syntax highlighting with cursor
-            let chars: Vec<char> = line_content.chars().collect();
-
-            for (char_idx, ch) in chars.iter().enumerate() {
-                let char_byte_start = byte_offset
-                    + line_content
-                        .chars()
-                        .take(char_idx)
-                        .map(|c| c.len_utf8())
-                        .sum::<usize>();
-                let char_byte_end = char_byte_start + ch.len_utf8();
-
-                // Find highlight for this character
-                let color = line_highlights
-                    .iter()
-                    .find(|h| char_byte_start >= h.0 && char_byte_end <= h.1)
-                    .map(|h| h.2.color())
-                    .unwrap_or(Color::White);
-
-                if char_idx == cursor_col {
-                    // Cursor character
-                    spans.push(Span::styled(
-                        ch.to_string(),
-                        Style::default()
-                            .bg(Color::White)
-                            .fg(Color::Black)
-                            .add_modifier(Modifier::BOLD),
-                    ));
-                } else {
-                    spans.push(Span::styled(ch.to_string(), Style::default().fg(color)));
-                }
-            }
-
-            // Add cursor if at end of line
-            if cursor_col >= chars.len() {
-                spans.push(Span::styled(
-                    " ",
-                    Style::default()
-                        .bg(Color::White)
-                        .fg(Color::Black)
-                        .add_modifier(Modifier::BOLD),
-                ));
-            }
-        } else {
-            // Apply syntax highlighting without cursor
-            let chars: Vec<char> = line_content.chars().collect();
-
-            for (char_idx, ch) in chars.iter().enumerate() {
-                let char_byte_start = byte_offset
-                    + line_content
-                        .chars()
-                        .take(char_idx)
-                        .map(|c| c.len_utf8())
-                        .sum::<usize>();
-                let char_byte_end = char_byte_start + ch.len_utf8();
-
-                // Find highlight for this character
-                let color = line_highlights
-                    .iter()
-                    .find(|h| char_byte_start >= h.0 && char_byte_end <= h.1)
-                    .map(|h| h.2.color())
-                    .unwrap_or(Color::White);
-
-                spans.push(Span::styled(ch.to_string(), Style::default().fg(color)));
-            }
-        }
-
-        spans
-    }
-
     pub fn render(&self, f: &mut Frame, area: Rect, engine: &AnimationEngine) {
         let block = Block::default()
             .title("Editor")
             .borders(Borders::ALL)
             .border_style(Style::default().fg(Color::Green));
 
-        // Get visible lines based on scroll offset and area height
-        let content_height = area.height.saturating_sub(2) as usize; // Subtract borders
+        let content_height = area.height.saturating_sub(2) as usize;
         let scroll_offset = engine.buffer.scroll_offset;
         let buffer_lines = &engine.buffer.lines;
-
-        // Calculate line number width
-        let total_lines = buffer_lines.len();
-        let line_num_width = format!("{}", total_lines).len().max(3);
-
-        // Use cached syntax highlights from buffer
-        let highlights = &engine.buffer.cached_highlights;
+        let line_num_width = format!("{}", buffer_lines.len()).len().max(3);
 
         let visible_lines: Vec<Line> = buffer_lines
             .iter()
@@ -202,50 +41,200 @@ impl EditorPane {
             .enumerate()
             .map(|(idx, line_content)| {
                 let line_num = scroll_offset + idx;
-                let is_cursor_line = line_num == engine.buffer.cursor_line;
-
-                let mut spans = Vec::new();
-
-                // Line number
-                let line_num_str = format!("{:>width$} ", line_num + 1, width = line_num_width);
-                if is_cursor_line {
-                    spans.push(Span::styled(
-                        line_num_str,
-                        Style::default()
-                            .fg(Color::Yellow)
-                            .add_modifier(Modifier::BOLD),
-                    ));
-                } else {
-                    spans.push(Span::styled(
-                        line_num_str,
-                        Style::default().fg(Color::DarkGray),
-                    ));
-                }
-
-                // Line separator
-                spans.push(Span::styled("│ ", Style::default().fg(Color::DarkGray)));
-
-                // Get syntax highlighting for this line
-                let line_spans = self.highlight_line(HighlightContext {
-                    line_content,
-                    line_num,
-                    show_cursor: is_cursor_line
-                        && engine.cursor_visible
-                        && engine.active_pane == ActivePane::Editor,
-                    cursor_col: engine.buffer.cursor_col,
-                    highlights,
-                    buffer_lines,
-                    editing_line: engine.buffer.editing_line,
-                    editing_insert_byte_position: engine.buffer.editing_insert_byte_position,
-                    editing_line_byte_offset: engine.buffer.editing_line_byte_offset,
-                });
-                spans.extend(line_spans);
-
-                Line::from(spans)
+                self.build_line(line_content, line_num, line_num_width, engine)
             })
             .collect();
 
         let content = Paragraph::new(visible_lines).block(block);
         f.render_widget(content, area);
+    }
+
+    fn build_line(
+        &self,
+        line_content: &str,
+        line_num: usize,
+        line_num_width: usize,
+        engine: &AnimationEngine,
+    ) -> Line<'_> {
+        let is_cursor_line = line_num == engine.buffer.cursor_line;
+        let mut spans = Vec::new();
+
+        spans.push(self.render_line_number(line_num, is_cursor_line, line_num_width));
+        spans.push(Span::styled("│ ", Style::default().fg(Color::DarkGray)));
+
+        let line_spans = self.highlight_line(HighlightContext {
+            line_content,
+            line_num,
+            show_cursor: is_cursor_line
+                && engine.cursor_visible
+                && engine.active_pane == ActivePane::Editor,
+            cursor_col: engine.buffer.cursor_col,
+            cursor_line: engine.buffer.cursor_line,
+            old_highlights: &engine.buffer.old_highlights,
+            new_highlights: &engine.buffer.new_highlights,
+            old_line_offsets: &engine.buffer.old_content_line_offsets,
+            new_line_offsets: &engine.buffer.new_content_line_offsets,
+            line_offset: engine.line_offset,
+        });
+        spans.extend(line_spans);
+
+        Line::from(spans)
+    }
+
+    fn render_line_number(&self, line_num: usize, is_cursor_line: bool, width: usize) -> Span<'_> {
+        let line_num_str = format!("{:>width$} ", line_num + 1, width = width);
+        if is_cursor_line {
+            Span::styled(
+                line_num_str,
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            )
+        } else {
+            Span::styled(line_num_str, Style::default().fg(Color::DarkGray))
+        }
+    }
+
+    fn highlight_line(&self, ctx: HighlightContext<'_>) -> Vec<Span<'_>> {
+        let (highlights, line_offsets) = self.select_highlights_and_offsets(
+            ctx.line_num,
+            ctx.cursor_line,
+            ctx.old_highlights,
+            ctx.new_highlights,
+            ctx.old_line_offsets,
+            ctx.new_line_offsets,
+        );
+
+        let byte_offset = self.calculate_byte_offset(
+            ctx.line_num,
+            ctx.cursor_line,
+            ctx.line_offset,
+            line_offsets,
+        );
+
+        let line_highlights =
+            self.filter_line_highlights(highlights, byte_offset, ctx.line_content.len());
+
+        self.apply_highlights(
+            ctx.line_content,
+            byte_offset,
+            &line_highlights,
+            ctx.show_cursor,
+            ctx.cursor_col,
+        )
+    }
+
+    fn select_highlights_and_offsets<'a>(
+        &self,
+        line_num: usize,
+        cursor_line: usize,
+        old_highlights: &'a [crate::syntax::HighlightSpan],
+        new_highlights: &'a [crate::syntax::HighlightSpan],
+        old_line_offsets: &'a [usize],
+        new_line_offsets: &'a [usize],
+    ) -> (&'a [crate::syntax::HighlightSpan], &'a [usize]) {
+        if line_num < cursor_line {
+            (new_highlights, new_line_offsets)
+        } else if line_num == cursor_line {
+            (&[], &[])
+        } else {
+            (old_highlights, old_line_offsets)
+        }
+    }
+
+    fn calculate_byte_offset(
+        &self,
+        line_num: usize,
+        cursor_line: usize,
+        line_offset: isize,
+        line_offsets: &[usize],
+    ) -> usize {
+        let target_line = if line_num > cursor_line {
+            ((line_num as isize) - line_offset).max(0) as usize
+        } else {
+            line_num
+        };
+
+        line_offsets
+            .get(target_line)
+            .copied()
+            .unwrap_or_else(|| *line_offsets.last().unwrap_or(&0))
+    }
+
+    fn filter_line_highlights(
+        &self,
+        highlights: &[crate::syntax::HighlightSpan],
+        byte_offset: usize,
+        line_len: usize,
+    ) -> Vec<(usize, usize, crate::syntax::TokenType)> {
+        let line_end = byte_offset + line_len;
+        highlights
+            .iter()
+            .filter_map(|h| {
+                if h.start < line_end && h.end > byte_offset {
+                    Some((h.start, h.end, h.token_type))
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+
+    fn apply_highlights(
+        &self,
+        line_content: &str,
+        byte_offset: usize,
+        line_highlights: &[(usize, usize, crate::syntax::TokenType)],
+        show_cursor: bool,
+        cursor_col: usize,
+    ) -> Vec<Span<'_>> {
+        let chars: Vec<char> = line_content.chars().collect();
+        let mut spans = Vec::new();
+
+        let mut relative_byte = 0;
+        for (char_idx, ch) in chars.iter().enumerate() {
+            let char_byte_start = byte_offset + relative_byte;
+            let char_byte_end = char_byte_start + ch.len_utf8();
+            relative_byte += ch.len_utf8();
+
+            let color = self.get_char_color(char_byte_start, char_byte_end, line_highlights);
+
+            if show_cursor && char_idx == cursor_col {
+                spans.push(Span::styled(
+                    ch.to_string(),
+                    Style::default()
+                        .bg(Color::White)
+                        .fg(Color::Black)
+                        .add_modifier(Modifier::BOLD),
+                ));
+            } else {
+                spans.push(Span::styled(ch.to_string(), Style::default().fg(color)));
+            }
+        }
+
+        if show_cursor && cursor_col >= chars.len() {
+            spans.push(Span::styled(
+                " ",
+                Style::default()
+                    .bg(Color::White)
+                    .fg(Color::Black)
+                    .add_modifier(Modifier::BOLD),
+            ));
+        }
+
+        spans
+    }
+
+    fn get_char_color(
+        &self,
+        char_byte_start: usize,
+        char_byte_end: usize,
+        line_highlights: &[(usize, usize, crate::syntax::TokenType)],
+    ) -> Color {
+        line_highlights
+            .iter()
+            .find(|h| char_byte_start >= h.0 && char_byte_end <= h.1)
+            .map(|h| h.2.color())
+            .unwrap_or(Color::White)
     }
 }
