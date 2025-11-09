@@ -120,7 +120,8 @@ impl<'a> UI<'a> {
                 terminal.draw(|f| self.render(f))?;
             }
 
-            if event::poll(std::time::Duration::from_millis(1))? {
+            // Poll for keyboard events at frame rate
+            if event::poll(std::time::Duration::from_millis(8))? {
                 if let Event::Key(key) = event::read()? {
                     if key.code == KeyCode::Esc {
                         self.state = UIState::Finished;

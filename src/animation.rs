@@ -190,21 +190,31 @@ pub struct AnimationEngine {
     pub highlighter: RefCell<Highlighter>,
     /// Track cumulative line offset from old_content (insertions - deletions)
     pub line_offset: isize,
+    /// Target frames per second for rendering
+    #[allow(dead_code)]
+    target_fps: u64,
+    /// Frame interval in milliseconds (calculated from target_fps)
+    frame_interval_ms: u64,
+    /// Last frame render time
+    last_frame: Instant,
 }
 
 impl AnimationEngine {
     pub fn new(speed_ms: u64) -> Self {
+        let target_fps: u64 = 120;
+        let frame_interval_ms = 1000 / target_fps;
+        let now = Instant::now();
         Self {
             buffer: EditorBuffer::new(),
             state: AnimationState::Idle,
             steps: Vec::new(),
             current_step: 0,
-            last_update: Instant::now(),
+            last_update: now,
             speed_ms,
             next_step_delay: speed_ms,
             pause_until: None,
             cursor_visible: true,
-            cursor_blink_timer: Instant::now(),
+            cursor_blink_timer: now,
             viewport_height: 20, // Default, will be updated from UI
             current_file_index: 0,
             current_file_path: None,
@@ -212,6 +222,9 @@ impl AnimationEngine {
             active_pane: ActivePane::Terminal, // Start with terminal (git checkout)
             highlighter: RefCell::new(Highlighter::new()),
             line_offset: 0,
+            target_fps,
+            frame_interval_ms,
+            last_frame: now,
         }
     }
 
@@ -569,41 +582,85 @@ impl AnimationEngine {
 
     /// Update animation state and return true if display needs refresh
     pub fn tick(&mut self) -> bool {
-        // Handle cursor blinking
-        if self.cursor_blink_timer.elapsed() >= Duration::from_millis(500) {
-            self.cursor_visible = !self.cursor_visible;
-            self.cursor_blink_timer = Instant::now();
-        }
+        self.update_cursor_blink();
 
-        // Check if we're paused
-        if let Some(pause_until) = self.pause_until {
-            if Instant::now() < pause_until {
-                return true; // Keep blinking cursor during pause
-            }
-            self.pause_until = None;
+        if self.is_paused() {
+            return true;
         }
 
         if self.state != AnimationState::Playing {
             return false;
         }
 
-        // Check if it's time for next step
-        if self.last_update.elapsed() < Duration::from_millis(self.next_step_delay) {
+        let now = Instant::now();
+        if !self.should_render_frame(now) {
             return false;
         }
 
-        // Execute next step
+        let executed = self.execute_batch_steps(now);
+
         if self.current_step >= self.steps.len() {
             self.state = AnimationState::Finished;
-            return false;
         }
 
-        let step = self.steps[self.current_step].clone();
-        self.execute_step(step);
-        self.current_step += 1;
-        self.last_update = Instant::now();
+        executed
+    }
 
-        true
+    fn update_cursor_blink(&mut self) {
+        if self.cursor_blink_timer.elapsed() >= Duration::from_millis(500) {
+            self.cursor_visible = !self.cursor_visible;
+            self.cursor_blink_timer = Instant::now();
+        }
+    }
+
+    fn is_paused(&mut self) -> bool {
+        if let Some(pause_until) = self.pause_until {
+            if Instant::now() < pause_until {
+                return true;
+            }
+            self.pause_until = None;
+        }
+        false
+    }
+
+    fn should_render_frame(&self, now: Instant) -> bool {
+        now.duration_since(self.last_frame) >= Duration::from_millis(self.frame_interval_ms)
+    }
+
+    fn execute_batch_steps(&mut self, frame_start: Instant) -> bool {
+        let mut accumulated_delay = 0u64;
+        let mut executed_any = false;
+
+        while self.current_step < self.steps.len() {
+            if !self.can_execute_step(executed_any, accumulated_delay) {
+                break;
+            }
+
+            let step_delay = self.next_step_delay;
+            let step = self.steps[self.current_step].clone();
+
+            self.execute_step(step);
+            self.current_step += 1;
+            executed_any = true;
+            accumulated_delay += step_delay;
+        }
+
+        if executed_any {
+            self.last_update = Instant::now();
+            self.last_frame = frame_start;
+        }
+
+        executed_any
+    }
+
+    fn can_execute_step(&self, executed_any: bool, accumulated_delay: u64) -> bool {
+        // First step: check if enough time has elapsed since last step
+        if !executed_any {
+            return self.last_update.elapsed() >= Duration::from_millis(self.next_step_delay);
+        }
+
+        // Subsequent steps: check if they fit within frame budget
+        accumulated_delay + self.next_step_delay <= self.frame_interval_ms
     }
 
     fn execute_step(&mut self, step: AnimationStep) {
