@@ -6,7 +6,10 @@ use crossterm::{
 };
 use ratatui::{
     backend::CrosstermBackend,
-    layout::{Constraint, Direction, Layout},
+    layout::{Constraint, Direction, Layout, Rect},
+    style::Style,
+    text::{Line, Span},
+    widgets::{Block, Borders, Padding, Paragraph},
     Frame, Terminal,
 };
 use std::io;
@@ -17,6 +20,7 @@ use std::time::{Duration, Instant};
 use crate::animation::AnimationEngine;
 use crate::git::{CommitMetadata, GitRepository};
 use crate::panes::{EditorPane, FileTreePane, StatusBarPane, TerminalPane};
+use crate::theme::Theme;
 
 #[derive(Debug, Clone, PartialEq)]
 enum UIState {
@@ -33,9 +37,9 @@ pub struct UI<'a> {
     terminal: TerminalPane,
     status_bar: StatusBarPane,
     engine: AnimationEngine,
-    metadata: Option<CommitMetadata>,
     repo: Option<&'a GitRepository>,
     should_exit: Arc<AtomicBool>,
+    theme: Theme,
 }
 
 impl<'a> UI<'a> {
@@ -51,9 +55,9 @@ impl<'a> UI<'a> {
             terminal: TerminalPane,
             status_bar: StatusBarPane,
             engine: AnimationEngine::new(speed_ms),
-            metadata: None,
             repo,
             should_exit,
+            theme: Theme::default(),
         }
     }
 
@@ -66,7 +70,6 @@ impl<'a> UI<'a> {
 
     pub fn load_commit(&mut self, metadata: CommitMetadata) {
         self.engine.load_commit(&metadata);
-        self.metadata = Some(metadata);
         self.state = UIState::Playing;
     }
 
@@ -103,14 +106,9 @@ impl<'a> UI<'a> {
             }
 
             // Update viewport height for scroll calculation
-            // Main content area height - status bar (3) - borders (2) = editor height
             let size = terminal.size()?;
-            let editor_height = size
-                .height
-                .saturating_sub(3) // Status bar
-                .saturating_sub(2); // Main content borders
-            let viewport_height = (editor_height as f32 * 0.8) as usize; // 80% for editor
-            let viewport_height = viewport_height.saturating_sub(2); // Editor borders
+            // Editor area: 70% (right column) × 80% (editor pane) = 56% of total height
+            let viewport_height = (size.height as f32 * 0.70 * 0.80) as usize;
             self.engine.set_viewport_height(viewport_height);
 
             // Tick the animation engine
@@ -174,39 +172,130 @@ impl<'a> UI<'a> {
     fn render(&self, f: &mut Frame) {
         let size = f.area();
 
+        // Split horizontally: left column | right column
         let main_layout = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([
-                Constraint::Min(0),    // Main content area
-                Constraint::Length(3), // Status bar
-            ])
-            .split(size);
-
-        let content_layout = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([
-                Constraint::Percentage(30), // Left side (file tree)
-                Constraint::Percentage(70), // Right side (editor + terminal)
+                Constraint::Percentage(30), // Left column (file tree + commit info)
+                Constraint::Percentage(70), // Right column (editor + terminal)
             ])
+            .margin(0)
+            .spacing(0)
+            .split(size);
+
+        // Split left column vertically: file tree | separator | commit info
+        let left_layout = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Percentage(80), // File tree
+                Constraint::Length(1),      // Horizontal separator
+                Constraint::Percentage(20), // Commit info
+            ])
+            .margin(0)
+            .spacing(0)
             .split(main_layout[0]);
 
+        // Split right column vertically: editor | separator | terminal
         let right_layout = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
                 Constraint::Percentage(80), // Editor
+                Constraint::Length(1),      // Horizontal separator
                 Constraint::Percentage(20), // Terminal
             ])
-            .split(content_layout[1]);
+            .margin(0)
+            .spacing(0)
+            .split(main_layout[1]);
 
+        let separator_color = self.theme.separator;
+
+        // Render file tree
         self.file_tree.render(
             f,
-            content_layout[0],
-            self.metadata.as_ref(),
+            left_layout[0],
+            self.engine.current_metadata(),
             self.engine.current_file_index,
+            &self.theme,
         );
-        self.editor.render(f, right_layout[0], &self.engine);
-        self.terminal.render(f, right_layout[1], &self.engine);
-        self.status_bar
-            .render(f, main_layout[1], self.metadata.as_ref());
+
+        // Render horizontal separator between file tree and commit info (left column)
+        let left_sep = Paragraph::new(Line::from("─".repeat(left_layout[1].width as usize))).style(
+            Style::default()
+                .fg(separator_color)
+                .bg(self.theme.background_left),
+        );
+        f.render_widget(left_sep, left_layout[1]);
+
+        // Render commit info
+        self.status_bar.render(
+            f,
+            left_layout[2],
+            self.engine.current_metadata(),
+            &self.theme,
+        );
+
+        // Render editor
+        self.editor
+            .render(f, right_layout[0], &self.engine, &self.theme);
+
+        // Render horizontal separator between editor and terminal (right column)
+        let right_sep = Paragraph::new(Line::from("─".repeat(right_layout[1].width as usize)))
+            .style(
+                Style::default()
+                    .fg(separator_color)
+                    .bg(self.theme.background_right),
+            );
+        f.render_widget(right_sep, right_layout[1]);
+
+        // Render terminal
+        self.terminal
+            .render(f, right_layout[2], &self.engine, &self.theme);
+
+        // Render dialog if present
+        if let Some(ref title) = self.engine.dialog_title {
+            let text = &self.engine.dialog_typing_text;
+            let dialog_width = (text.len() + 10).max(60).min(size.width as usize) as u16;
+            let dialog_height = 3;
+            let dialog_x = (size.width.saturating_sub(dialog_width)) / 2;
+            let dialog_y = (size.height.saturating_sub(dialog_height)) / 2;
+
+            let dialog_area = Rect {
+                x: dialog_x,
+                y: dialog_y,
+                width: dialog_width,
+                height: dialog_height,
+            };
+
+            // Calculate content width (dialog_width - borders(2) - padding(2))
+            let content_width = dialog_width.saturating_sub(4) as usize;
+            let text_len = text.len();
+            let padding_len = content_width.saturating_sub(text_len);
+
+            let spans = vec![
+                Span::styled(
+                    text.clone(),
+                    Style::default().fg(self.theme.file_tree_current_file_fg),
+                ),
+                Span::styled(
+                    " ".repeat(padding_len),
+                    Style::default().bg(self.theme.editor_cursor_line_bg),
+                ),
+            ];
+
+            let dialog_text = vec![Line::from(spans)];
+
+            let block = Block::default()
+                .borders(Borders::ALL)
+                .title(title.clone())
+                .padding(Padding::horizontal(1))
+                .style(
+                    Style::default()
+                        .fg(self.theme.file_tree_current_file_fg)
+                        .bg(self.theme.editor_cursor_line_bg),
+                );
+
+            let dialog = Paragraph::new(dialog_text).block(block);
+            f.render_widget(dialog, dialog_area);
+        }
     }
 }

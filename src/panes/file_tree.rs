@@ -1,9 +1,10 @@
 use crate::git::{CommitMetadata, LineChangeType};
+use crate::theme::Theme;
 use ratatui::{
     layout::Rect,
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph},
+    widgets::{Block, Padding, Paragraph, Wrap},
     Frame,
 };
 use std::collections::BTreeMap;
@@ -20,36 +21,47 @@ impl FileTreePane {
         area: Rect,
         metadata: Option<&CommitMetadata>,
         current_file_index: usize,
+        theme: &Theme,
     ) {
         let block = Block::default()
-            .title("File Tree")
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Cyan));
+            .style(Style::default().bg(theme.background_left))
+            .padding(Padding {
+                left: 2,
+                right: 2,
+                top: 1,
+                bottom: 1,
+            });
 
         let lines = if let Some(meta) = metadata {
-            Self::build_tree_lines(meta, current_file_index)
+            // Subtract horizontal padding (2 on each side)
+            let content_width = area.width.saturating_sub(4) as usize;
+            Self::build_tree_lines(meta, current_file_index, theme, content_width)
         } else {
             vec![Line::from("No commit loaded")]
         };
 
-        let content = Paragraph::new(lines).block(block);
+        let content = Paragraph::new(lines)
+            .block(block)
+            .wrap(Wrap { trim: false });
         f.render_widget(content, area);
     }
 
     fn build_tree_lines(
         metadata: &CommitMetadata,
         current_file_index: usize,
+        theme: &Theme,
+        area_width: usize,
     ) -> Vec<Line<'static>> {
         // Build directory tree
         let mut tree: FileTree = BTreeMap::new();
 
         for (index, change) in metadata.changes.iter().enumerate() {
             let (status_char, color) = match change.status.as_str() {
-                "A" => ("+", Color::Green),
-                "D" => ("-", Color::Red),
-                "M" => ("~", Color::Yellow),
-                "R" => (">", Color::Blue),
-                _ => (" ", Color::White),
+                "A" => ("+", theme.file_tree_added),
+                "D" => ("-", theme.file_tree_deleted),
+                "M" => ("~", theme.file_tree_modified),
+                "R" => (">", theme.file_tree_renamed),
+                _ => (" ", theme.file_tree_default),
             };
 
             // Count additions and deletions
@@ -102,46 +114,83 @@ impl FileTreePane {
                 lines.push(Line::from(vec![Span::styled(
                     format!("{}/", dir),
                     Style::default()
-                        .fg(Color::Cyan)
+                        .fg(theme.file_tree_directory)
                         .add_modifier(Modifier::BOLD),
                 )]));
             }
 
             // Add files
             for (index, filename, status_char, color, additions, deletions) in files {
+                let is_current = *index == current_file_index;
                 let indent = if dir.is_empty() { "" } else { "  " }.to_string();
-                let mut spans = vec![
-                    Span::raw(indent),
-                    Span::styled(
-                        format!("{} ", status_char),
-                        Style::default().fg(*color).add_modifier(Modifier::BOLD),
-                    ),
-                ];
+                let indent_len = indent.len();
 
-                // Highlight current file
-                if *index == current_file_index {
+                let status_str = format!("{} ", status_char);
+                let stats_str = format!(" +{} -{}", additions, deletions);
+
+                let mut spans = vec![];
+
+                if is_current {
+                    // Current file - apply background to entire line
+                    spans.push(Span::styled(
+                        indent.clone(),
+                        Style::default().bg(theme.file_tree_current_file_bg),
+                    ));
+                    spans.push(Span::styled(
+                        status_str.clone(),
+                        Style::default()
+                            .fg(*color)
+                            .bg(theme.file_tree_current_file_bg)
+                            .add_modifier(Modifier::BOLD),
+                    ));
                     spans.push(Span::styled(
                         filename.clone(),
                         Style::default()
-                            .fg(Color::White)
-                            .bg(Color::DarkGray)
+                            .fg(theme.file_tree_current_file_fg)
+                            .bg(theme.file_tree_current_file_bg)
                             .add_modifier(Modifier::BOLD),
                     ));
-                } else {
-                    spans.push(Span::raw(filename.clone()));
-                }
+                    spans.push(Span::styled(
+                        format!(" +{}", additions),
+                        Style::default()
+                            .fg(theme.file_tree_stats_added)
+                            .bg(theme.file_tree_current_file_bg),
+                    ));
+                    spans.push(Span::styled(
+                        format!(" -{}", deletions),
+                        Style::default()
+                            .fg(theme.file_tree_stats_deleted)
+                            .bg(theme.file_tree_current_file_bg),
+                    ));
 
-                // Add change stats
-                spans.push(Span::raw(" "));
-                spans.push(Span::styled(
-                    format!("+{}", additions),
-                    Style::default().fg(Color::Green),
-                ));
-                spans.push(Span::raw(" "));
-                spans.push(Span::styled(
-                    format!("-{}", deletions),
-                    Style::default().fg(Color::Red),
-                ));
+                    // Calculate line length and fill to right edge
+                    let line_len = indent_len + status_str.len() + filename.len() + stats_str.len();
+                    if line_len < area_width {
+                        spans.push(Span::styled(
+                            " ".repeat(area_width - line_len),
+                            Style::default().bg(theme.file_tree_current_file_bg),
+                        ));
+                    }
+                } else {
+                    // Normal file
+                    spans.push(Span::raw(indent));
+                    spans.push(Span::styled(
+                        status_str,
+                        Style::default().fg(*color).add_modifier(Modifier::BOLD),
+                    ));
+                    spans.push(Span::styled(
+                        filename.clone(),
+                        Style::default().fg(theme.file_tree_default),
+                    ));
+                    spans.push(Span::styled(
+                        format!(" +{}", additions),
+                        Style::default().fg(theme.file_tree_stats_added),
+                    ));
+                    spans.push(Span::styled(
+                        format!(" -{}", deletions),
+                        Style::default().fg(theme.file_tree_stats_deleted),
+                    ));
+                }
 
                 lines.push(Line::from(spans));
             }

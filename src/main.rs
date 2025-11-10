@@ -2,6 +2,7 @@ mod animation;
 mod git;
 mod panes;
 mod syntax;
+mod theme;
 mod ui;
 
 use anyhow::{Context, Result};

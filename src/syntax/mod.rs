@@ -1,5 +1,6 @@
 pub mod languages;
 
+use crate::theme::Theme;
 use ratatui::style::Color;
 use std::path::Path;
 use streaming_iterator::StreamingIterator;
@@ -25,21 +26,21 @@ pub enum TokenType {
 }
 
 impl TokenType {
-    pub fn color(&self) -> Color {
+    pub fn color(&self, theme: &Theme) -> Color {
         match self {
-            TokenType::Keyword => Color::Magenta,
-            TokenType::Type => Color::Yellow,
-            TokenType::Function => Color::Blue,
-            TokenType::Variable => Color::White,
-            TokenType::String => Color::Green,
-            TokenType::Number => Color::Cyan,
-            TokenType::Comment => Color::DarkGray,
-            TokenType::Operator => Color::LightRed,
-            TokenType::Punctuation => Color::White,
-            TokenType::Constant => Color::LightYellow,
-            TokenType::Parameter => Color::LightCyan,
-            TokenType::Property => Color::LightBlue,
-            TokenType::Label => Color::LightMagenta,
+            TokenType::Keyword => theme.syntax_keyword,
+            TokenType::Type => theme.syntax_type,
+            TokenType::Function => theme.syntax_function,
+            TokenType::Variable => theme.syntax_variable,
+            TokenType::String => theme.syntax_string,
+            TokenType::Number => theme.syntax_number,
+            TokenType::Comment => theme.syntax_comment,
+            TokenType::Operator => theme.syntax_operator,
+            TokenType::Punctuation => theme.syntax_punctuation,
+            TokenType::Constant => theme.syntax_constant,
+            TokenType::Parameter => theme.syntax_parameter,
+            TokenType::Property => theme.syntax_property,
+            TokenType::Label => theme.syntax_label,
         }
     }
 }

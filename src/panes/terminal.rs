@@ -1,23 +1,28 @@
 use crate::animation::{ActivePane, AnimationEngine};
+use crate::theme::Theme;
 use ratatui::{
     layout::Rect,
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph},
+    widgets::{Block, Padding, Paragraph, Wrap},
     Frame,
 };
 
 pub struct TerminalPane;
 
 impl TerminalPane {
-    pub fn render(&self, f: &mut Frame, area: Rect, engine: &AnimationEngine) {
+    pub fn render(&self, f: &mut Frame, area: Rect, engine: &AnimationEngine, theme: &Theme) {
         let block = Block::default()
-            .title("Terminal")
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Yellow));
+            .style(Style::default().bg(theme.background_right))
+            .padding(Padding {
+                left: 2,
+                right: 2,
+                top: 1,
+                bottom: 1,
+            });
 
-        // Get visible lines based on area height
-        let content_height = area.height.saturating_sub(2) as usize; // Subtract borders
+        // Get visible lines based on area height (subtract padding)
+        let content_height = area.height.saturating_sub(2) as usize; // Subtract top and bottom padding
         let total_lines = engine.terminal_lines.len();
 
         let lines: Vec<Line> = if total_lines > 0 {
@@ -31,35 +36,34 @@ impl TerminalPane {
                         && engine.cursor_visible
                         && engine.active_pane == ActivePane::Terminal;
 
-                    if line.starts_with("$ ") {
-                        // Command line - show in green with bold
+                    if line.starts_with("~ ") {
+                        // Command line
                         if show_cursor {
                             // Add cursor at the end of the line
                             let mut spans = vec![Span::styled(
                                 line.clone(),
-                                Style::default()
-                                    .fg(Color::Green)
-                                    .add_modifier(Modifier::BOLD),
+                                Style::default().fg(theme.terminal_command),
                             )];
                             spans.push(Span::styled(
                                 " ",
                                 Style::default()
-                                    .bg(Color::White)
-                                    .fg(Color::Black)
+                                    .bg(theme.terminal_cursor_bg)
+                                    .fg(theme.terminal_cursor_fg)
                                     .add_modifier(Modifier::BOLD),
                             ));
                             Line::from(spans)
                         } else {
-                            Line::from(Span::styled(
+                            Line::from(vec![Span::styled(
                                 line.clone(),
-                                Style::default()
-                                    .fg(Color::Green)
-                                    .add_modifier(Modifier::BOLD),
-                            ))
+                                Style::default().fg(theme.terminal_command),
+                            )])
                         }
                     } else {
                         // Output line - normal style
-                        Line::from(line.clone())
+                        Line::from(vec![Span::styled(
+                            line.clone(),
+                            Style::default().fg(theme.terminal_output),
+                        )])
                     }
                 })
                 .collect()
@@ -67,7 +71,9 @@ impl TerminalPane {
             vec![Line::from("")]
         };
 
-        let content = Paragraph::new(lines).block(block);
+        let content = Paragraph::new(lines)
+            .block(block)
+            .wrap(Wrap { trim: false });
         f.render_widget(content, area);
     }
 }

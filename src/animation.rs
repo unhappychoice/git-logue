@@ -6,7 +6,6 @@ use std::time::{Duration, Instant};
 
 // Duration multipliers relative to typing speed
 const CURSOR_MOVE_PAUSE: f64 = 0.5; // Cursor movement between lines (base speed)
-const CURSOR_MOVE_END_PAUSE: f64 = 10.0; // After cursor movement completes
 const CURSOR_MOVE_SHORT_MULTIPLIER: f64 = 1.0; // Speed for short distances (1-5 lines)
 const CURSOR_MOVE_MEDIUM_MULTIPLIER: f64 = 0.3; // Speed for medium distances (6-20 lines)
 const CURSOR_MOVE_LONG_MULTIPLIER: f64 = 0.1; // Speed for long distances (21+ lines)
@@ -146,6 +145,10 @@ pub enum AnimationStep {
         new_content: String,
         path: String,
     },
+    OpenFileDialogStart,
+    DialogTypeChar {
+        ch: char,
+    },
     TerminalPrompt,
     TerminalTypeChar {
         ch: char,
@@ -153,6 +156,7 @@ pub enum AnimationStep {
     TerminalOutput {
         text: String,
     },
+    ResetState,
 }
 
 /// Animation state machine
@@ -197,6 +201,14 @@ pub struct AnimationEngine {
     frame_interval_ms: u64,
     /// Last frame render time
     last_frame: Instant,
+    /// Dialog title (e.g., "Open File...")
+    pub dialog_title: Option<String>,
+    /// Text being typed in the dialog
+    pub dialog_typing_text: String,
+    /// Current metadata being displayed
+    current_metadata: Option<CommitMetadata>,
+    /// Pending metadata to be applied on ResetState
+    pending_metadata: Option<CommitMetadata>,
 }
 
 impl AnimationEngine {
@@ -225,11 +237,20 @@ impl AnimationEngine {
             target_fps,
             frame_interval_ms,
             last_frame: now,
+            dialog_title: None,
+            dialog_typing_text: String::new(),
+            current_metadata: None,
+            pending_metadata: None,
         }
     }
 
     pub fn set_viewport_height(&mut self, height: usize) {
         self.viewport_height = height;
+    }
+
+    /// Get the current metadata being displayed
+    pub fn current_metadata(&self) -> Option<&CommitMetadata> {
+        self.current_metadata.as_ref()
     }
 
     fn calculate_line_offsets(content: &str) -> Vec<usize> {
@@ -254,11 +275,12 @@ impl AnimationEngine {
 
     /// Load a commit and generate animation steps
     pub fn load_commit(&mut self, metadata: &CommitMetadata) {
+        // Store pending metadata to be applied on ResetState
+        self.pending_metadata = Some(metadata.clone());
+
         self.steps.clear();
         self.current_step = 0;
         self.state = AnimationState::Playing;
-        self.current_file_index = 0;
-        self.terminal_lines.clear();
         self.last_update = Instant::now();
         self.pause_until = None;
 
@@ -295,6 +317,9 @@ impl AnimationEngine {
             duration_ms: (self.speed_ms as f64 * CHECKOUT_OUTPUT_PAUSE) as u64,
         });
 
+        // Apply new metadata after time-travel animation
+        self.steps.push(AnimationStep::ResetState);
+
         // Process all file changes
         for (index, change) in metadata.changes.iter().enumerate() {
             // Skip excluded files (lock files and generated files)
@@ -322,7 +347,17 @@ impl AnimationEngine {
                     duration_ms: (self.speed_ms as f64 * OPEN_FILE_PAUSE) as u64,
                 });
             }
-            self.add_terminal_command(&format!("open {}", change.path));
+            // Show "Open File..." dialog and type the file path
+            self.steps.push(AnimationStep::OpenFileDialogStart);
+            self.steps.push(AnimationStep::Pause {
+                duration_ms: (self.speed_ms as f64 * 5.0) as u64,
+            });
+
+            // Type each character of the file path
+            for ch in change.path.chars() {
+                self.steps.push(AnimationStep::DialogTypeChar { ch });
+            }
+
             self.steps.push(AnimationStep::Pause {
                 duration_ms: (self.speed_ms as f64 * OPEN_CMD_PAUSE) as u64,
             });
@@ -475,8 +510,8 @@ impl AnimationEngine {
             return to_line;
         }
 
-        // Determine speed multiplier based on total distance
-        let speed_multiplier = if distance <= 5 {
+        // Determine base speed multiplier based on total distance
+        let base_speed_multiplier = if distance <= 5 {
             CURSOR_MOVE_SHORT_MULTIPLIER
         } else if distance <= 20 {
             CURSOR_MOVE_MEDIUM_MULTIPLIER
@@ -484,32 +519,51 @@ impl AnimationEngine {
             CURSOR_MOVE_LONG_MULTIPLIER
         };
 
-        // Calculate pause per step
-        let pause_per_step =
-            (self.speed_ms as f64 * CURSOR_MOVE_PAUSE * speed_multiplier).max(1.0) as u64;
+        // Calculate line positions with easing (slow start, fast middle, slow end)
+        let num_steps = (distance as f64 * 0.3).max(10.0).min(distance as f64) as usize;
+        let mut positions = Vec::new();
 
-        if from_line < to_line {
-            // Move down
-            for line in (from_line + 1)..=to_line {
-                self.steps.push(AnimationStep::MoveCursor { line, col: 0 });
-                self.steps.push(AnimationStep::Pause {
-                    duration_ms: pause_per_step,
-                });
+        for i in 0..=num_steps {
+            let t = i as f64 / num_steps as f64;
+            let eased = self.ease_in_out_cubic(t);
+            let line_progress = (eased * distance as f64).round() as usize;
+
+            let actual_line = if from_line < to_line {
+                from_line + line_progress
+            } else {
+                from_line - line_progress
+            };
+
+            // Avoid duplicate positions
+            if positions.is_empty() || positions.last() != Some(&actual_line) {
+                positions.push(actual_line);
             }
-        } else {
-            // Move up
-            for line in (to_line..from_line).rev() {
+        }
+
+        // Generate movement steps
+        let base_pause =
+            (self.speed_ms as f64 * CURSOR_MOVE_PAUSE * base_speed_multiplier).max(1.0) as u64;
+
+        for line in positions {
+            if line != from_line {
                 self.steps.push(AnimationStep::MoveCursor { line, col: 0 });
                 self.steps.push(AnimationStep::Pause {
-                    duration_ms: pause_per_step,
+                    duration_ms: base_pause,
                 });
             }
         }
 
-        self.steps.push(AnimationStep::Pause {
-            duration_ms: (self.speed_ms as f64 * CURSOR_MOVE_END_PAUSE) as u64,
-        });
         to_line
+    }
+
+    /// Ease-in-out cubic easing function
+    /// Starts slow, accelerates in middle, ends slow
+    fn ease_in_out_cubic(&self, t: f64) -> f64 {
+        if t < 0.5 {
+            4.0 * t * t * t
+        } else {
+            1.0 - (-2.0 * t + 2.0).powi(3) / 2.0
+        }
     }
 
     /// Generate animation steps for a diff hunk
@@ -672,6 +726,11 @@ impl AnimationEngine {
                 let variation = rng.gen_range(0.7..=1.3);
                 ((self.speed_ms as f64) * variation) as u64
             }
+            AnimationStep::DialogTypeChar { .. } => {
+                // Dialog typing is slower (2x speed with variation)
+                let variation = rng.gen_range(0.7..=1.3);
+                ((self.speed_ms as f64) * 2.0 * variation) as u64
+            }
             _ => {
                 // Other steps use base speed
                 self.speed_ms
@@ -711,6 +770,13 @@ impl AnimationEngine {
             AnimationStep::Pause { duration_ms } => {
                 self.pause_until = Some(Instant::now() + Duration::from_millis(duration_ms));
             }
+            AnimationStep::OpenFileDialogStart => {
+                self.dialog_typing_text = String::new();
+                self.dialog_title = Some("Open File...".to_string());
+            }
+            AnimationStep::DialogTypeChar { ch } => {
+                self.dialog_typing_text.push(ch);
+            }
             AnimationStep::SwitchFile {
                 file_index,
                 old_content,
@@ -718,6 +784,9 @@ impl AnimationEngine {
                 path,
             } => {
                 self.active_pane = ActivePane::Editor;
+                // Clear dialog when file is actually switched
+                self.dialog_title = None;
+                self.dialog_typing_text = String::new();
                 // Switch to new file
                 self.current_file_index = file_index;
                 self.current_file_path = Some(path.clone());
@@ -756,7 +825,7 @@ impl AnimationEngine {
             AnimationStep::TerminalPrompt => {
                 self.active_pane = ActivePane::Terminal;
                 // Start a new command line with prompt
-                self.terminal_lines.push("$ ".to_string());
+                self.terminal_lines.push("~ ".to_string());
             }
             AnimationStep::TerminalTypeChar { ch } => {
                 self.active_pane = ActivePane::Terminal;
@@ -769,6 +838,17 @@ impl AnimationEngine {
                 self.active_pane = ActivePane::Terminal;
                 // Add output line
                 self.terminal_lines.push(text);
+            }
+            AnimationStep::ResetState => {
+                // Apply pending metadata and reset UI state after time-travel animation
+                if let Some(metadata) = self.pending_metadata.take() {
+                    self.current_metadata = Some(metadata);
+                }
+                self.current_file_index = 0;
+                // Keep terminal_lines to preserve time-travel command and output
+                self.buffer = EditorBuffer::new();
+                self.current_file_path = None;
+                self.active_pane = ActivePane::Terminal;
             }
         }
 

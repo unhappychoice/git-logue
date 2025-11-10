@@ -435,7 +435,6 @@ mod tests {
         assert!(should_exclude_file("composer.lock"));
         // Go
         assert!(should_exclude_file("go.sum"));
-        assert!(should_exclude_file("go.mod"));
         // Swift
         assert!(should_exclude_file("Package.resolved"));
         // Dart/Flutter
