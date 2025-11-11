@@ -55,6 +55,9 @@ gitlogue --speed 20
 # List available themes
 gitlogue theme list
 
+# Set default theme
+gitlogue theme set dracula
+
 # Combine options
 gitlogue --commit HEAD~5 --theme nord --speed 15
 ```
@@ -64,6 +67,44 @@ gitlogue --commit HEAD~5 --theme nord --speed 15
 - `Esc` or `Ctrl+C` - Quit the application
 
 See the [Usage Guide](docs/usage.md) for detailed examples and advanced features.
+
+## Configuration
+
+gitlogue supports configuration via a TOML file located at `~/.config/gitlogue/config.toml`.
+
+All configuration options are optional. CLI arguments take precedence over config file values.
+
+You can edit the config file manually or use the `gitlogue theme set` command to update the theme setting.
+
+### Example Configuration
+
+```toml
+# gitlogue configuration file
+# All settings are optional and will use defaults if not specified
+
+# Theme to use for syntax highlighting
+theme = "dracula"
+
+# Typing speed in milliseconds per character
+speed = 50
+
+# Show background colors (set to false for transparent background)
+background = true
+```
+
+### Configuration Options
+
+- `theme` - Theme name (default: `tokyo-night`). See available themes with `gitlogue theme list`
+- `speed` - Typing speed in milliseconds per character (default: `30`)
+- `background` - Show background colors (default: `true`). Set to `false` for transparent background
+
+### Configuration Priority
+
+Settings are applied in the following order (highest priority first):
+
+1. CLI arguments (e.g., `--theme dracula`)
+2. Configuration file (`~/.config/gitlogue/config.toml`)
+3. Default values
 
 ## Features
 
