@@ -3,6 +3,7 @@ use crate::syntax::Highlighter;
 use rand::Rng;
 use std::cell::RefCell;
 use std::time::{Duration, Instant};
+use unicode_width::UnicodeWidthStr;
 
 // Duration multipliers relative to typing speed
 const CURSOR_MOVE_PAUSE: f64 = 0.5; // Cursor movement between lines (base speed)
@@ -187,6 +188,7 @@ pub struct AnimationEngine {
     pub cursor_visible: bool,
     cursor_blink_timer: Instant,
     viewport_height: usize,
+    content_width: usize,
     pub current_file_index: usize,
     pub current_file_path: Option<String>,
     pub terminal_lines: Vec<String>,
@@ -228,6 +230,7 @@ impl AnimationEngine {
             cursor_visible: true,
             cursor_blink_timer: now,
             viewport_height: 20, // Default, will be updated from UI
+            content_width: 80,   // Default, will be updated from UI
             current_file_index: 0,
             current_file_path: None,
             terminal_lines: Vec::new(),
@@ -246,6 +249,10 @@ impl AnimationEngine {
 
     pub fn set_viewport_height(&mut self, height: usize) {
         self.viewport_height = height;
+    }
+
+    pub fn set_content_width(&mut self, width: usize) {
+        self.content_width = width;
     }
 
     /// Get the current metadata being displayed
@@ -320,11 +327,25 @@ impl AnimationEngine {
         // Apply new metadata after time-travel animation
         self.steps.push(AnimationStep::ResetState);
 
-        // Process all file changes
-        for (index, change) in metadata.changes.iter().enumerate() {
+        // Sort file changes to match FileTree display order (directory -> filename)
+        let sorted_indices = metadata.sorted_file_indices();
+
+        // Process all file changes in sorted order
+        for &index in &sorted_indices {
+            let change = &metadata.changes[index];
             match (change.is_excluded, &change.status) {
                 // Skip excluded files (lock files and generated files)
                 (true, _) => {
+                    // Switch to the excluded file to show in file tree
+                    let old_content = change.old_content.clone().unwrap_or_default();
+                    let new_content = change.new_content.clone().unwrap_or_default();
+                    self.steps.push(AnimationStep::SwitchFile {
+                        file_index: index,
+                        old_content,
+                        new_content,
+                        path: change.path.clone(),
+                    });
+
                     self.steps.push(AnimationStep::Pause {
                         duration_ms: (self.speed_ms as f64 * OPEN_FILE_PAUSE) as u64,
                     });
@@ -341,6 +362,15 @@ impl AnimationEngine {
                 }
                 // For deleted files, skip editor animation and only run rm + git add
                 (false, FileStatus::Deleted) => {
+                    // Switch to the deleted file to show in file tree
+                    let old_content = change.old_content.clone().unwrap_or_default();
+                    self.steps.push(AnimationStep::SwitchFile {
+                        file_index: index,
+                        old_content,
+                        new_content: String::new(),
+                        path: change.path.clone(),
+                    });
+
                     self.steps.push(AnimationStep::Pause {
                         duration_ms: (self.speed_ms as f64 * GIT_ADD_PAUSE) as u64,
                     });
@@ -355,6 +385,16 @@ impl AnimationEngine {
                 }
                 // For renamed/moved files, skip editor animation and only run mv + git add
                 (false, FileStatus::Renamed) => {
+                    // Switch to the renamed file to show in file tree
+                    let old_content = change.old_content.clone().unwrap_or_default();
+                    let new_content = change.new_content.clone().unwrap_or_default();
+                    self.steps.push(AnimationStep::SwitchFile {
+                        file_index: index,
+                        old_content,
+                        new_content,
+                        path: change.path.clone(),
+                    });
+
                     self.steps.push(AnimationStep::Pause {
                         duration_ms: (self.speed_ms as f64 * GIT_ADD_PAUSE) as u64,
                     });
@@ -892,28 +932,71 @@ impl AnimationEngine {
         self.update_scroll();
     }
 
+    fn calculate_line_display_height(&self, line: &str) -> usize {
+        if self.content_width == 0 {
+            return 1;
+        }
+
+        // Calculate text area width (excluding line numbers, padding, etc.)
+        let line_num_width = format!("{}", self.buffer.lines.len()).len().max(3);
+        let left_padding = 2;
+        let line_num_and_space = line_num_width + 1;
+        let separator = 2;
+        let right_padding = 2;
+        let fixed_width = left_padding + line_num_and_space + separator + right_padding;
+
+        let text_width = self.content_width.saturating_sub(fixed_width);
+        if text_width == 0 {
+            return 1;
+        }
+
+        // Calculate how many lines this text will take when wrapped (using display width)
+        let display_width = line.width();
+        display_width.div_ceil(text_width).max(1)
+    }
+
     fn update_scroll(&mut self) {
         if self.viewport_height == 0 {
             return;
         }
 
         let cursor_line = self.buffer.cursor_line;
-        let total_lines = self.buffer.lines.len();
-        let half_viewport = self.viewport_height / 2;
 
-        // Try to center the cursor line
-        let target_offset = if cursor_line < half_viewport {
-            // Near the top of file, don't scroll
+        // Calculate display line positions for each logical line
+        let mut display_line_positions = Vec::with_capacity(self.buffer.lines.len());
+        let mut current_display_line = 0;
+
+        for line in &self.buffer.lines {
+            display_line_positions.push(current_display_line);
+            current_display_line += self.calculate_line_display_height(line);
+        }
+
+        let total_display_lines = current_display_line;
+        let cursor_display_line = display_line_positions
+            .get(cursor_line)
+            .copied()
+            .unwrap_or(0);
+
+        // Calculate target scroll position (in display lines)
+        let half_viewport = self.viewport_height / 2;
+        let target_display_offset = if cursor_display_line < half_viewport {
             0
-        } else if cursor_line + half_viewport >= total_lines {
-            // Near the bottom of file, show as much as possible
-            total_lines.saturating_sub(self.viewport_height)
+        } else if cursor_display_line + half_viewport >= total_display_lines {
+            total_display_lines.saturating_sub(self.viewport_height)
         } else {
-            // Middle of file, center the cursor
-            cursor_line.saturating_sub(half_viewport)
+            cursor_display_line.saturating_sub(half_viewport)
         };
 
-        self.buffer.scroll_offset = target_offset;
+        // Find the logical line that corresponds to the target display offset
+        let mut logical_offset = 0;
+        for (line_idx, &display_pos) in display_line_positions.iter().enumerate() {
+            if display_pos >= target_display_offset {
+                logical_offset = line_idx;
+                break;
+            }
+        }
+
+        self.buffer.scroll_offset = logical_offset;
     }
 
     pub fn is_finished(&self) -> bool {
