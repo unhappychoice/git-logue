@@ -7,6 +7,7 @@ use ratatui::{
     widgets::{Block, Padding, Paragraph, Wrap},
     Frame,
 };
+use unicode_width::UnicodeWidthStr;
 
 pub struct EditorPane;
 
@@ -33,6 +34,7 @@ impl EditorPane {
             .padding(Padding::vertical(1));
 
         let content_height = area.height.saturating_sub(2) as usize; // Subtract top and bottom padding
+                                                                     // Note: Padding::vertical doesn't affect width, so content_width = area.width
         let content_width = area.width as usize;
         let scroll_offset = engine.buffer.scroll_offset;
         let buffer_lines = &engine.buffer.lines;
@@ -118,13 +120,14 @@ impl EditorPane {
         };
         spans.push(Span::styled("  ", separator_style));
 
+        let show_cursor =
+            is_cursor_line && engine.cursor_visible && engine.active_pane == ActivePane::Editor;
+
         let line_spans = self.highlight_line(HighlightContext {
             line_content,
             line_num,
             is_cursor_line,
-            show_cursor: is_cursor_line
-                && engine.cursor_visible
-                && engine.active_pane == ActivePane::Editor,
+            show_cursor,
             cursor_col: engine.buffer.cursor_col,
             cursor_line: engine.buffer.cursor_line,
             old_highlights: &engine.buffer.old_highlights,
@@ -135,35 +138,8 @@ impl EditorPane {
             theme,
             distance_opacity,
         });
-        // Calculate actual text length from line_spans (in characters, not bytes)
-        let actual_text_len: usize = line_spans
-            .iter()
-            .map(|span| span.content.chars().count())
-            .sum();
+
         spans.extend(line_spans);
-
-        // Fill cursor line to the right edge with background color
-        if is_cursor_line {
-            // Calculate current line length (including left padding, line number and separator)
-            let left_padding_len = 2; // left padding
-            let line_num_len = line_num_width + 1; // line number + space
-            let separator_len = 2; // two spaces
-            let right_padding_len = 2; // right padding
-            let current_len = left_padding_len
-                + line_num_len
-                + separator_len
-                + actual_text_len
-                + right_padding_len;
-
-            // Add spaces to fill the rest of the line
-            if current_len < content_width {
-                let fill_count = content_width - current_len;
-                spans.push(Span::styled(
-                    " ".repeat(fill_count),
-                    Style::default().bg(theme.editor_cursor_line_bg),
-                ));
-            }
-        }
 
         // Right padding
         if is_cursor_line {
@@ -173,6 +149,22 @@ impl EditorPane {
             ));
         } else {
             spans.push(Span::raw("  "));
+        }
+
+        // Fill cursor line to the right edge with background color
+        if is_cursor_line {
+            // Calculate total display width already added to spans
+            // Use unicode width instead of char count to handle wide characters (CJK, emojis, etc.)
+            let current_width: usize = spans.iter().map(|s| s.content.width()).sum();
+
+            // Fill remaining space to content_width
+            if current_width < content_width {
+                let fill_count = content_width - current_width;
+                spans.push(Span::styled(
+                    " ".repeat(fill_count),
+                    Style::default().bg(theme.editor_cursor_line_bg),
+                ));
+            }
         }
 
         Line::from(spans)
