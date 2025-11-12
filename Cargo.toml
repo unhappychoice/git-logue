@@ -8,7 +8,7 @@ license = "ISC"
 repository = "https://github.com/unhappychoice/gitlogue"
 
 [dependencies]
-git2 = "0.19"
+git2 = { version = "0.19", features = ["vendored-openssl", "vendored-libgit2"] }
 ratatui = "0.29"
 crossterm = "0.28"
 tree-sitter = "0.25"
