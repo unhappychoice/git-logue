@@ -1,0 +1,14 @@
+{
+  "name": "gitlogue-ogp-generator",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Generate OGP image for gitlogue",
+  "scripts": {
+    "generate": "node generate.js"
+  },
+  "dependencies": {
+    "satori": "^0.10.14",
+    "sharp": "^0.33.5",
+    "@resvg/resvg-js": "^2.6.2"
+  }
+}

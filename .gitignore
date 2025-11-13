@@ -11,3 +11,6 @@
 # OS
 .DS_Store
 Thumbs.db
+
+# Scripts
+scripts/ogp/node_modules/
