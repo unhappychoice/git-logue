@@ -103,6 +103,21 @@ Available orders:
 - `asc` - Replays commits from oldest to newest
 - `desc` - Replays commits from newest to oldest
 
+### `--loop`
+
+Enable continuous looping of the animation.
+
+```bash
+gitlogue --loop                      # Loop random commits continuously
+gitlogue --commit abc123 --loop      # Loop a specific commit
+gitlogue --commit HEAD~5 --loop      # Loop the commit 5 before HEAD
+```
+
+This is especially useful when viewing a specific commit and you want it to replay indefinitely, perfect for:
+- Demonstrations and presentations
+- Continuous display screens
+- Desktop ricing and ambience
+
 ### `--help`
 
 Display help information:

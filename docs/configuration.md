@@ -41,6 +41,9 @@ background = true
 
 # Commit playback order: random, asc, or desc
 order = "random"
+
+# Loop the animation continuously
+loop = false
 ```
 
 ## Configuration Options
@@ -93,13 +96,23 @@ Available orders:
 - `asc` - Replays commits from oldest to newest
 - `desc` - Replays commits from newest to oldest
 
+### `loop`
+
+Whether to loop the animation continuously.
+
+- **Type**: Boolean
+- **Default**: `false`
+- **Example**: `loop = true`
+
+When enabled, the animation will repeat indefinitely after completing. Especially useful with specific commits for demonstrations and ambient displays.
+
 ## Configuration Priority
 
 Settings are applied in the following order (highest priority first):
 
 1. **CLI arguments** - Command-line flags override everything
    ```bash
-   gitlogue --theme nord --speed 20 --background=false --order asc
+   gitlogue --theme nord --speed 20 --background=false --order asc --loop
    ```
 
 2. **Configuration file** - Values from `~/.config/gitlogue/config.toml`
@@ -189,6 +202,7 @@ theme = "tokyo-night"
 speed = 30
 background = true
 order = "random"
+loop = false
 EOF
 ```
 
