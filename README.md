@@ -77,6 +77,9 @@ gitlogue --commit abc123
 # Replay commits in chronological order (oldest first)
 gitlogue --order asc
 
+# Loop a specific commit continuously
+gitlogue --commit abc123 --loop
+
 # Use a different theme
 gitlogue --theme dracula
 

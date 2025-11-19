@@ -13,6 +13,8 @@ pub struct Config {
     pub background: bool,
     #[serde(default = "default_order")]
     pub order: String,
+    #[serde(default = "default_loop")]
+    pub loop_playback: bool,
 }
 
 fn default_theme() -> String {
@@ -31,6 +33,10 @@ fn default_order() -> String {
     "random".to_string()
 }
 
+fn default_loop() -> bool {
+    false
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
@@ -38,6 +44,7 @@ impl Default for Config {
             speed: default_speed(),
             background: default_background(),
             order: default_order(),
+            loop_playback: default_loop(),
         }
     }
 }
@@ -77,6 +84,7 @@ impl Config {
             doc["speed"] = toml_edit::value(self.speed as i64);
             doc["background"] = toml_edit::value(self.background);
             doc["order"] = toml_edit::value(self.order.as_str());
+            doc["loop"] = toml_edit::value(self.loop_playback);
 
             doc.to_string()
         } else {
@@ -95,8 +103,11 @@ impl Config {
                  background = {}\n\
                  \n\
                  # Commit playback order: random, asc, or desc\n\
-                 order = \"{}\"\n",
-                self.theme, self.speed, self.background, self.order
+                 order = \"{}\"\n\
+                 \n\
+                 # Loop the animation continuously\n\
+                 loop = {}\n",
+                self.theme, self.speed, self.background, self.order, self.loop_playback
             )
         };
 

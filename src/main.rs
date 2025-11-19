@@ -80,6 +80,15 @@ pub struct Args {
     )]
     pub order: Option<PlaybackOrder>,
 
+    #[arg(
+        long = "loop",
+        num_args = 0..=1,
+        default_missing_value = "true",
+        value_name = "BOOL",
+        help = "Loop the animation continuously (useful with --commit for commit ranges)"
+    )]
+    pub loop_playback: Option<bool>,
+
     #[arg(long, help = "Display third-party license information")]
     pub license: bool,
 
@@ -181,6 +190,7 @@ fn main() -> Result<()> {
         "desc" => PlaybackOrder::Desc,
         _ => PlaybackOrder::Random,
     });
+    let loop_playback = args.loop_playback.unwrap_or(config.loop_playback);
     let mut theme = Theme::load(theme_name)?;
 
     // Apply transparent background if requested
@@ -200,12 +210,19 @@ fn main() -> Result<()> {
     };
 
     // Create UI with repository reference (for random mode) or without (for single commit mode)
-    let repo_ref = if is_commit_specified {
+    let repo_ref = if is_commit_specified && !loop_playback {
         None
     } else {
         Some(&repo)
     };
-    let mut ui = UI::new(speed, is_commit_specified, repo_ref, theme, order);
+    let mut ui = UI::new(
+        speed,
+        repo_ref,
+        theme,
+        order,
+        loop_playback,
+        args.commit.clone(),
+    );
     ui.load_commit(metadata);
     ui.run()?;
 

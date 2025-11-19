@@ -267,8 +267,12 @@ impl GitRepository {
             anyhow::bail!("No non-merge commits found in repository");
         }
 
+        if *index >= candidates.len() {
+            anyhow::bail!("All commits have been played");
+        }
+
         // Asc order: oldest first (reverse of cache order)
-        let asc_index = candidates.len() - 1 - (*index % candidates.len());
+        let asc_index = candidates.len() - 1 - *index;
         let selected_oid = candidates
             .get(asc_index)
             .context("Failed to select commit")?;
@@ -292,10 +296,12 @@ impl GitRepository {
             anyhow::bail!("No non-merge commits found in repository");
         }
 
+        if *index >= candidates.len() {
+            anyhow::bail!("All commits have been played");
+        }
+
         // Desc order: newest first (same as cache order)
-        let selected_oid = candidates
-            .get(*index % candidates.len())
-            .context("Failed to select commit")?;
+        let selected_oid = candidates.get(*index).context("Failed to select commit")?;
 
         *index += 1;
 
@@ -303,6 +309,10 @@ impl GitRepository {
         drop(index);
         drop(cache);
         Self::extract_metadata_with_changes(&self.repo, &commit)
+    }
+
+    pub fn reset_index(&self) {
+        *self.commit_index.borrow_mut() = 0;
     }
 
     fn populate_cache(&self) -> Result<()> {
