@@ -1,5 +1,7 @@
 # gitlogue
 
+<a title="This tool is Tool of The Week on Terminal Trove, The $HOME of all things in the terminal" href="https://terminaltrove.com/gitlogue/"><img src="https://cdn.terminaltrove.com/media/badges/tool_of_the_week/svg/terminal_trove_tool_of_the_week_green_on_black_bg.svg" alt="Terminal Trove Tool of The Week" height="48" /></a>
+
 <p align="center">
   <img src="docs/assets/demo.gif" alt="gitlogue demo" style="max-width: 100%; width: 800px;" />
 </p>
