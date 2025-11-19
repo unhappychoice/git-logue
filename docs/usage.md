@@ -88,6 +88,21 @@ gitlogue --speed 100  # Very slow typing
 
 Lower values = faster typing. Recommended range: 10-100ms.
 
+### `--order <ORDER>`
+
+Set the commit playback order.
+
+```bash
+gitlogue --order asc     # Oldest first (chronological)
+gitlogue --order desc    # Newest first (reverse chronological)
+gitlogue --order random  # Random order (default)
+```
+
+Available orders:
+- `random` (default) - Randomly selects commits
+- `asc` - Replays commits from oldest to newest
+- `desc` - Replays commits from newest to oldest
+
 ### `--help`
 
 Display help information:

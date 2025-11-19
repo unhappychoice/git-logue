@@ -8,12 +8,20 @@ mod ui;
 mod widgets;
 
 use anyhow::{Context, Result};
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 use config::Config;
 use git::GitRepository;
 use std::path::PathBuf;
 use theme::Theme;
 use ui::UI;
+
+#[derive(Debug, Clone, Copy, Default, ValueEnum)]
+pub enum PlaybackOrder {
+    #[default]
+    Random,
+    Asc,
+    Desc,
+}
 
 #[derive(Parser, Debug)]
 #[command(
@@ -63,6 +71,14 @@ pub struct Args {
         help = "Show background colors (use --background=false for transparent background, overrides config file)"
     )]
     pub background: Option<bool>,
+
+    #[arg(
+        long,
+        value_enum,
+        value_name = "ORDER",
+        help = "Commit playback order (overrides config file)"
+    )]
+    pub order: Option<PlaybackOrder>,
 
     #[arg(long, help = "Display third-party license information")]
     pub license: bool,
@@ -160,6 +176,11 @@ fn main() -> Result<()> {
     let theme_name = args.theme.as_deref().unwrap_or(&config.theme);
     let speed = args.speed.unwrap_or(config.speed);
     let background = args.background.unwrap_or(config.background);
+    let order = args.order.unwrap_or(match config.order.as_str() {
+        "asc" => PlaybackOrder::Asc,
+        "desc" => PlaybackOrder::Desc,
+        _ => PlaybackOrder::Random,
+    });
     let mut theme = Theme::load(theme_name)?;
 
     // Apply transparent background if requested
@@ -171,7 +192,11 @@ fn main() -> Result<()> {
     let metadata = if let Some(commit_hash) = &args.commit {
         repo.get_commit(commit_hash)?
     } else {
-        repo.random_commit()?
+        match order {
+            PlaybackOrder::Random => repo.random_commit()?,
+            PlaybackOrder::Asc => repo.next_asc_commit()?,
+            PlaybackOrder::Desc => repo.next_desc_commit()?,
+        }
     };
 
     // Create UI with repository reference (for random mode) or without (for single commit mode)
@@ -180,7 +205,7 @@ fn main() -> Result<()> {
     } else {
         Some(&repo)
     };
-    let mut ui = UI::new(speed, is_commit_specified, repo_ref, theme);
+    let mut ui = UI::new(speed, is_commit_specified, repo_ref, theme, order);
     ui.load_commit(metadata);
     ui.run()?;
 

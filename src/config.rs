@@ -11,6 +11,8 @@ pub struct Config {
     pub speed: u64,
     #[serde(default = "default_background")]
     pub background: bool,
+    #[serde(default = "default_order")]
+    pub order: String,
 }
 
 fn default_theme() -> String {
@@ -25,12 +27,17 @@ fn default_background() -> bool {
     true
 }
 
+fn default_order() -> String {
+    "random".to_string()
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
             theme: default_theme(),
             speed: default_speed(),
             background: default_background(),
+            order: default_order(),
         }
     }
 }
@@ -69,6 +76,7 @@ impl Config {
             doc["theme"] = toml_edit::value(self.theme.as_str());
             doc["speed"] = toml_edit::value(self.speed as i64);
             doc["background"] = toml_edit::value(self.background);
+            doc["order"] = toml_edit::value(self.order.as_str());
 
             doc.to_string()
         } else {
@@ -84,8 +92,11 @@ impl Config {
                  speed = {}\n\
                  \n\
                  # Show background colors (set to false for transparent background)\n\
-                 background = {}\n",
-                self.theme, self.speed, self.background
+                 background = {}\n\
+                 \n\
+                 # Commit playback order: random, asc, or desc\n\
+                 order = \"{}\"\n",
+                self.theme, self.speed, self.background, self.order
             )
         };
 

@@ -84,6 +84,7 @@ pub fn should_exclude_file(path: &str) -> bool {
 pub struct GitRepository {
     repo: Repository,
     commit_cache: RefCell<Option<Vec<Oid>>>,
+    commit_index: RefCell<usize>,
 }
 
 #[derive(Debug, Clone)]
@@ -207,6 +208,7 @@ impl GitRepository {
         Ok(Self {
             repo,
             commit_cache: RefCell::new(None),
+            commit_index: RefCell::new(0),
         })
     }
 
@@ -252,6 +254,79 @@ impl GitRepository {
         let commit = self.repo.find_commit(*selected_oid)?;
         drop(cache); // Release the borrow before calling extract_metadata_with_changes
         Self::extract_metadata_with_changes(&self.repo, &commit)
+    }
+
+    pub fn next_asc_commit(&self) -> Result<CommitMetadata> {
+        self.populate_cache()?;
+
+        let cache = self.commit_cache.borrow();
+        let candidates = cache.as_ref().unwrap();
+        let mut index = self.commit_index.borrow_mut();
+
+        if candidates.is_empty() {
+            anyhow::bail!("No non-merge commits found in repository");
+        }
+
+        // Asc order: oldest first (reverse of cache order)
+        let asc_index = candidates.len() - 1 - (*index % candidates.len());
+        let selected_oid = candidates
+            .get(asc_index)
+            .context("Failed to select commit")?;
+
+        *index += 1;
+
+        let commit = self.repo.find_commit(*selected_oid)?;
+        drop(index);
+        drop(cache);
+        Self::extract_metadata_with_changes(&self.repo, &commit)
+    }
+
+    pub fn next_desc_commit(&self) -> Result<CommitMetadata> {
+        self.populate_cache()?;
+
+        let cache = self.commit_cache.borrow();
+        let candidates = cache.as_ref().unwrap();
+        let mut index = self.commit_index.borrow_mut();
+
+        if candidates.is_empty() {
+            anyhow::bail!("No non-merge commits found in repository");
+        }
+
+        // Desc order: newest first (same as cache order)
+        let selected_oid = candidates
+            .get(*index % candidates.len())
+            .context("Failed to select commit")?;
+
+        *index += 1;
+
+        let commit = self.repo.find_commit(*selected_oid)?;
+        drop(index);
+        drop(cache);
+        Self::extract_metadata_with_changes(&self.repo, &commit)
+    }
+
+    fn populate_cache(&self) -> Result<()> {
+        let mut cache = self.commit_cache.borrow_mut();
+        if cache.is_none() {
+            let mut revwalk = self.repo.revwalk()?;
+            revwalk.push_head()?;
+
+            let mut candidates = Vec::new();
+            for oid in revwalk.filter_map(|oid| oid.ok()) {
+                if let Ok(commit) = self.repo.find_commit(oid) {
+                    if commit.parent_count() <= 1 {
+                        candidates.push(oid);
+                    }
+                }
+            }
+
+            if candidates.is_empty() {
+                anyhow::bail!("No non-merge commits found in repository");
+            }
+
+            *cache = Some(candidates);
+        }
+        Ok(())
     }
 
     fn extract_metadata_with_changes(

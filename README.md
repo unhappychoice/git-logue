@@ -74,6 +74,9 @@ gitlogue
 # View a specific commit
 gitlogue --commit abc123
 
+# Replay commits in chronological order (oldest first)
+gitlogue --order asc
+
 # Use a different theme
 gitlogue --theme dracula
 

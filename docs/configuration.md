@@ -38,6 +38,9 @@ speed = 50
 
 # Show background colors (set to false for transparent background)
 background = true
+
+# Commit playback order: random, asc, or desc
+order = "random"
 ```
 
 ## Configuration Options
@@ -77,13 +80,26 @@ Whether to show background colors in themes.
 
 Set to `false` for transparent background (useful for terminal transparency).
 
+### `order`
+
+Commit playback order.
+
+- **Type**: String
+- **Default**: `"random"`
+- **Example**: `order = "asc"`
+
+Available orders:
+- `random` - Randomly selects commits (default)
+- `asc` - Replays commits from oldest to newest
+- `desc` - Replays commits from newest to oldest
+
 ## Configuration Priority
 
 Settings are applied in the following order (highest priority first):
 
 1. **CLI arguments** - Command-line flags override everything
    ```bash
-   gitlogue --theme nord --speed 20 --background=false
+   gitlogue --theme nord --speed 20 --background=false --order asc
    ```
 
 2. **Configuration file** - Values from `~/.config/gitlogue/config.toml`
@@ -172,6 +188,7 @@ cat > ~/.config/gitlogue/config.toml << 'EOF'
 theme = "tokyo-night"
 speed = 30
 background = true
+order = "random"
 EOF
 ```
 

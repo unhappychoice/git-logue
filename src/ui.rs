@@ -21,6 +21,7 @@ use crate::animation::AnimationEngine;
 use crate::git::{CommitMetadata, GitRepository};
 use crate::panes::{EditorPane, FileTreePane, StatusBarPane, TerminalPane};
 use crate::theme::Theme;
+use crate::PlaybackOrder;
 use unicode_width::UnicodeWidthStr;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -41,6 +42,7 @@ pub struct UI<'a> {
     repo: Option<&'a GitRepository>,
     should_exit: Arc<AtomicBool>,
     theme: Theme,
+    order: PlaybackOrder,
 }
 
 impl<'a> UI<'a> {
@@ -49,6 +51,7 @@ impl<'a> UI<'a> {
         _is_commit_specified: bool,
         repo: Option<&'a GitRepository>,
         theme: Theme,
+        order: PlaybackOrder,
     ) -> Self {
         let should_exit = Arc::new(AtomicBool::new(false));
         Self::setup_signal_handler(should_exit.clone());
@@ -64,6 +67,7 @@ impl<'a> UI<'a> {
             repo,
             should_exit,
             theme,
+            order,
         }
     }
 
@@ -156,7 +160,12 @@ impl<'a> UI<'a> {
                 UIState::WaitingForNext { resume_at } => {
                     if Instant::now() >= resume_at {
                         if let Some(repo) = self.repo {
-                            match repo.random_commit() {
+                            let result = match self.order {
+                                PlaybackOrder::Random => repo.random_commit(),
+                                PlaybackOrder::Asc => repo.next_asc_commit(),
+                                PlaybackOrder::Desc => repo.next_desc_commit(),
+                            };
+                            match result {
                                 Ok(metadata) => {
                                     self.load_commit(metadata);
                                 }
