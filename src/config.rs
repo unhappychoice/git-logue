@@ -94,8 +94,9 @@ impl Config {
     }
 
     pub fn config_path() -> Result<PathBuf> {
-        let config_dir = dirs::config_dir()
-            .context("Failed to determine config directory")?
+        let config_dir = dirs::home_dir()
+            .context("Failed to determine home directory")?
+            .join(".config")
             .join("gitlogue");
 
         fs::create_dir_all(&config_dir).with_context(|| {
@@ -110,8 +111,9 @@ impl Config {
 
     #[allow(dead_code)]
     pub fn themes_dir() -> Result<PathBuf> {
-        let config_dir = dirs::config_dir()
-            .context("Failed to determine config directory")?
+        let config_dir = dirs::home_dir()
+            .context("Failed to determine home directory")?
+            .join(".config")
             .join("gitlogue")
             .join("themes");
 
