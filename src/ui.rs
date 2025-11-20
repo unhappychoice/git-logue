@@ -45,6 +45,7 @@ pub struct UI<'a> {
     order: PlaybackOrder,
     loop_playback: bool,
     commit_spec: Option<String>,
+    is_range_mode: bool,
 }
 
 impl<'a> UI<'a> {
@@ -55,6 +56,7 @@ impl<'a> UI<'a> {
         order: PlaybackOrder,
         loop_playback: bool,
         commit_spec: Option<String>,
+        is_range_mode: bool,
     ) -> Self {
         let should_exit = Arc::new(AtomicBool::new(false));
         Self::setup_signal_handler(should_exit.clone());
@@ -73,6 +75,7 @@ impl<'a> UI<'a> {
             order,
             loop_playback,
             commit_spec,
+            is_range_mode,
         }
     }
 
@@ -181,8 +184,13 @@ impl<'a> UI<'a> {
                 UIState::WaitingForNext { resume_at } => {
                     if Instant::now() >= resume_at {
                         if let Some(repo) = self.repo {
-                            let result = if self.commit_spec.is_some() {
-                                // Specific commit mode - replay the same commit
+                            let result = if self.is_range_mode {
+                                match self.order {
+                                    PlaybackOrder::Random => repo.random_range_commit(),
+                                    PlaybackOrder::Asc => repo.next_range_commit_asc(),
+                                    PlaybackOrder::Desc => repo.next_range_commit_desc(),
+                                }
+                            } else if self.commit_spec.is_some() {
                                 repo.get_commit(self.commit_spec.as_ref().unwrap())
                             } else {
                                 match self.order {
@@ -196,14 +204,22 @@ impl<'a> UI<'a> {
                                     self.load_commit(metadata);
                                 }
                                 Err(_) => {
-                                    // All commits played or error occurred
                                     if self.loop_playback {
-                                        // Reset and start from beginning
                                         repo.reset_index();
-                                        let restart_result = match self.order {
-                                            PlaybackOrder::Random => repo.random_commit(),
-                                            PlaybackOrder::Asc => repo.next_asc_commit(),
-                                            PlaybackOrder::Desc => repo.next_desc_commit(),
+                                        let restart_result = if self.is_range_mode {
+                                            match self.order {
+                                                PlaybackOrder::Random => repo.random_range_commit(),
+                                                PlaybackOrder::Asc => repo.next_range_commit_asc(),
+                                                PlaybackOrder::Desc => {
+                                                    repo.next_range_commit_desc()
+                                                }
+                                            }
+                                        } else {
+                                            match self.order {
+                                                PlaybackOrder::Random => repo.random_commit(),
+                                                PlaybackOrder::Asc => repo.next_asc_commit(),
+                                                PlaybackOrder::Desc => repo.next_desc_commit(),
+                                            }
                                         };
                                         match restart_result {
                                             Ok(metadata) => {

@@ -86,7 +86,10 @@ pub fn should_exclude_file(path: &str) -> bool {
 pub struct GitRepository {
     repo: Repository,
     commit_cache: RefCell<Option<Vec<Oid>>>,
+    // Shared index for both cache-based playback (asc/desc) and range playback.
+    // These modes are mutually exclusive based on CLI arguments.
     commit_index: RefCell<usize>,
+    commit_range: RefCell<Option<Vec<Oid>>>,
 }
 
 #[derive(Debug, Clone)]
@@ -211,6 +214,7 @@ impl GitRepository {
             repo,
             commit_cache: RefCell::new(None),
             commit_index: RefCell::new(0),
+            commit_range: RefCell::new(None),
         })
     }
 
@@ -315,6 +319,128 @@ impl GitRepository {
 
     pub fn reset_index(&self) {
         *self.commit_index.borrow_mut() = 0;
+    }
+
+    pub fn set_commit_range(&self, range: &str) -> Result<()> {
+        let commits = self.parse_commit_range(range)?;
+        *self.commit_range.borrow_mut() = Some(commits);
+        *self.commit_index.borrow_mut() = 0;
+        Ok(())
+    }
+
+    pub fn next_range_commit_asc(&self) -> Result<CommitMetadata> {
+        let range = self.commit_range.borrow();
+        let commits = range.as_ref().context("Commit range not set")?;
+        let mut index = self.commit_index.borrow_mut();
+
+        if commits.is_empty() {
+            anyhow::bail!("No commits in range");
+        }
+
+        if *index >= commits.len() {
+            anyhow::bail!("All commits in range have been played");
+        }
+
+        let selected_oid = commits.get(*index).context("Failed to select commit")?;
+        *index += 1;
+
+        let commit = self.repo.find_commit(*selected_oid)?;
+        drop(index);
+        drop(range);
+        Self::extract_metadata_with_changes(&self.repo, &commit)
+    }
+
+    pub fn next_range_commit_desc(&self) -> Result<CommitMetadata> {
+        let range = self.commit_range.borrow();
+        let commits = range.as_ref().context("Commit range not set")?;
+        let mut index = self.commit_index.borrow_mut();
+
+        if commits.is_empty() {
+            anyhow::bail!("No commits in range");
+        }
+
+        if *index >= commits.len() {
+            anyhow::bail!("All commits in range have been played");
+        }
+
+        // Desc order: newest first (reverse of asc)
+        let desc_index = commits.len() - 1 - *index;
+        let selected_oid = commits.get(desc_index).context("Failed to select commit")?;
+        *index += 1;
+
+        let commit = self.repo.find_commit(*selected_oid)?;
+        drop(index);
+        drop(range);
+        Self::extract_metadata_with_changes(&self.repo, &commit)
+    }
+
+    pub fn random_range_commit(&self) -> Result<CommitMetadata> {
+        let range = self.commit_range.borrow();
+        let commits = range.as_ref().context("Commit range not set")?;
+
+        if commits.is_empty() {
+            anyhow::bail!("No commits in range");
+        }
+
+        let selected_oid = commits
+            .get(rand::rng().random_range(0..commits.len()))
+            .context("Failed to select random commit")?;
+
+        let commit = self.repo.find_commit(*selected_oid)?;
+        drop(range);
+        Self::extract_metadata_with_changes(&self.repo, &commit)
+    }
+
+    fn parse_commit_range(&self, range: &str) -> Result<Vec<Oid>> {
+        // Reject symmetric difference operator (not supported)
+        if range.contains("...") {
+            anyhow::bail!(
+                "Symmetric difference operator '...' is not supported. Use '..' instead (e.g., 'HEAD~5..HEAD')"
+            );
+        }
+
+        if !range.contains("..") {
+            anyhow::bail!(
+                "Invalid range format: {}. Use formats like 'HEAD~5..HEAD' or 'abc123..'",
+                range
+            );
+        }
+
+        let parts: Vec<&str> = range.split("..").collect();
+        if parts.len() != 2 {
+            anyhow::bail!("Invalid range format: {}", range);
+        }
+
+        let start = if parts[0].is_empty() {
+            None
+        } else {
+            Some(self.repo.revparse_single(parts[0])?.id())
+        };
+
+        let end = if parts[1].is_empty() {
+            self.repo.head()?.peel_to_commit()?.id()
+        } else {
+            self.repo.revparse_single(parts[1])?.id()
+        };
+
+        let mut revwalk = self.repo.revwalk()?;
+        revwalk.push(end)?;
+
+        if let Some(start_oid) = start {
+            revwalk.hide(start_oid)?;
+        }
+
+        let mut commits = Vec::new();
+        for oid in revwalk.filter_map(|oid| oid.ok()) {
+            if let Ok(commit) = self.repo.find_commit(oid) {
+                if commit.parent_count() <= 1 {
+                    commits.push(oid);
+                }
+            }
+        }
+
+        commits.reverse();
+        Ok(commits)
     }
 
     fn populate_cache(&self) -> Result<()> {
