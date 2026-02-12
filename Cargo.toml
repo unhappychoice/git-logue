@@ -33,7 +33,7 @@ ctrlc = { version = "3.5", features = ["termination"] }
 dirs = "6.0"
 git2 = { version = "0.20", features = ["vendored-openssl", "vendored-libgit2"] }
 globset = "0.4"
-rand = "0.9"
+rand = "0.10"
 ratatui = "0.30"
 serde = { version = "1.0", features = ["derive"] }
 streaming-iterator = "0.1"
