@@ -2,7 +2,7 @@ use std::cell::RefCell;
 use std::time::{Duration, Instant};
 
 use globset::{Glob, GlobMatcher};
-use rand::Rng;
+use rand::RngExt;
 use unicode_width::UnicodeWidthStr;
 
 use crate::git::{CommitMetadata, DiffHunk, FileChange, FileStatus, LineChangeType};

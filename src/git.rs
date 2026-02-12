@@ -3,7 +3,7 @@ use chrono::{DateTime, Local, Utc};
 use chrono_english::{parse_date_string, Dialect};
 use git2::{Commit as Git2Commit, Delta, DiffOptions, Oid, Repository};
 use globset::{Glob, GlobSet, GlobSetBuilder};
-use rand::Rng;
+use rand::RngExt;
 use std::cell::RefCell;
 use std::path::Path;
 use std::sync::OnceLock;
