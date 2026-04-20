@@ -299,7 +299,11 @@ fn resolve_injection_language(query: &Query, m: &QueryMatch, source: &str) -> Op
         .and_then(|c| {
             let text = source.get(c.node.byte_range())?.trim();
             let cleaned = text.trim_matches(|ch: char| ch == '"' || ch == '\'' || ch == '`');
-            (!cleaned.is_empty()).then(|| cleaned.to_ascii_lowercase())
+            let first = cleaned
+                .split(|ch: char| ch.is_whitespace() || ch == ',' || ch == '{')
+                .next()?
+                .trim();
+            (!first.is_empty()).then(|| first.to_ascii_lowercase())
         })
 }
 

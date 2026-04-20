@@ -214,7 +214,7 @@ fn canonicalize(raw: &str) -> Option<&'static str> {
         "c" | "h" => Some("c"),
         "clj" | "cljs" | "cljc" | "edn" | "clojure" => Some("clojure"),
         "cs" | "csx" | "csharp" | "c#" => Some("csharp"),
-        "css" | "scss" | "sass" | "postcss" | "less" => Some("css"),
+        "css" | "scss" | "postcss" | "less" => Some("css"),
         "dart" => Some("dart"),
         "ex" | "exs" | "elixir" => Some("elixir"),
         "erl" | "hrl" | "es" | "escript" | "erlang" => Some("erlang"),
