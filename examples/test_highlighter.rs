@@ -54,4 +54,46 @@ fn main() {
             i, span.start, span.end, span.token_type, text
         );
     }
+
+    let astro_code = r#"---
+const name = "world";
+---
+<h1>Hello {name}</h1>
+<style>
+  h1 { color: red; }
+</style>
+"#;
+    println!("\n=== Testing Astro highlighting ===");
+    let mut astro_highlighter = gitlogue::syntax::Highlighter::new();
+    let astro_success = astro_highlighter.set_language_from_path("test.astro");
+    println!("Language set: {}", astro_success);
+    let astro_highlights = astro_highlighter.highlight(astro_code);
+    println!("Number of highlights: {}", astro_highlights.len());
+    for (i, span) in astro_highlights.iter().enumerate().take(25) {
+        let text = &astro_code[span.start..span.end];
+        println!(
+            "{}: [{}-{}] {:?} = '{}'",
+            i, span.start, span.end, span.token_type, text
+        );
+    }
+
+    let html_code = r#"<!DOCTYPE html>
+<html>
+<head><style>body { color: blue; }</style></head>
+<body><script>const x = 1;</script></body>
+</html>
+"#;
+    println!("\n=== Testing HTML highlighting ===");
+    let mut html_highlighter = gitlogue::syntax::Highlighter::new();
+    let html_success = html_highlighter.set_language_from_path("test.html");
+    println!("Language set: {}", html_success);
+    let html_highlights = html_highlighter.highlight(html_code);
+    println!("Number of highlights: {}", html_highlights.len());
+    for (i, span) in html_highlights.iter().enumerate().take(25) {
+        let text = &html_code[span.start..span.end];
+        println!(
+            "{}: [{}-{}] {:?} = '{}'",
+            i, span.start, span.end, span.token_type, text
+        );
+    }
 }

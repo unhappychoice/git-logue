@@ -4,6 +4,8 @@ pub fn language() -> tree_sitter::Language {
 
 // Custom highlight query for better visibility
 // Based on tree_sitter_md::HIGHLIGHT_QUERY_BLOCK with improved colors
+pub const INJECTION_QUERY: &str = tree_sitter_md::INJECTION_QUERY_BLOCK;
+
 pub const HIGHLIGHT_QUERY: &str = r#"
 ;From nvim-treesitter/nvim-treesitter
 (atx_heading (inline) @text.title)

@@ -3,3 +3,5 @@ pub fn language() -> tree_sitter::Language {
 }
 
 pub const HIGHLIGHT_QUERY: &str = tree_sitter_php::HIGHLIGHTS_QUERY;
+
+pub const INJECTION_QUERY: &str = tree_sitter_php::INJECTIONS_QUERY;
