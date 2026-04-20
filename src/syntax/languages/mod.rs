@@ -1,3 +1,4 @@
+pub mod astro;
 pub mod bash;
 pub mod c;
 pub mod clojure;
@@ -35,6 +36,7 @@ pub fn get_language(path: &Path) -> Option<(Language, &'static str)> {
     let extension = path.extension()?.to_str()?;
 
     match extension {
+        "astro" => Some((astro::language(), astro::HIGHLIGHT_QUERY)),
         "sh" | "bash" | "zsh" => Some((bash::language(), bash::HIGHLIGHT_QUERY)),
         // C++ before C to handle .h files (can be either)
         "cpp" | "cc" | "cxx" | "c++" | "C" | "CPP" | "hpp" | "hh" | "hxx" | "h++" | "H" | "HPP"

@@ -180,7 +180,7 @@ See the [Configuration Guide](docs/configuration.md) for full options and exampl
 
 ## Supported Languages
 
-Bash, C, C#, C++, Clojure, CSS, Dart, Elixir, Erlang, Go, Haskell, HTML, Java, JavaScript, JSON, Kotlin, Lua, Markdown, PHP, Python, Ruby, Rust, Scala, Svelte, Swift, TypeScript, XML, YAML, Zig
+Astro, Bash, C, C#, C++, Clojure, CSS, Dart, Elixir, Erlang, Go, Haskell, HTML, Java, JavaScript, JSON, Kotlin, Lua, Markdown, PHP, Python, Ruby, Rust, Scala, Svelte, Swift, TypeScript, XML, YAML, Zig
 
 ## Documentation
 
