@@ -26,7 +26,7 @@ exclude = [
 [dependencies]
 anyhow = "1.0"
 chrono = "0.4"
-chrono-english = "0.1"
+chrono-english = "0.2"
 clap = { version = "4.6", features = ["derive"] }
 crossterm = "0.29"
 ctrlc = { version = "3.5", features = ["termination"] }

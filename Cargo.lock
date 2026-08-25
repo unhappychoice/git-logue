@@ -244,9 +244,9 @@ dependencies = [
 
 [[package]]
 name = "chrono-english"
-version = "0.1.8"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "38a56613410c9249673f4676ab8d27c70949814accb27b6b738009e2ff1034a1"
+checksum = "b0109374710d4c8d90b396d8eb5b9fad262861595ae2d078f91321e32c9e8acc"
 dependencies = [
  "chrono",
  "scanlex",
@@ -1623,9 +1623,9 @@ checksum = "28d3b2b1366ec20994f1fd18c3c594f05c5dd4bc44d8bb0c1c632c8d6829481f"
 
 [[package]]
 name = "scanlex"
-version = "0.1.4"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "088c5d71572124929ea7549a8ce98e1a6fd33d0a38367b09027b382e67c033db"
+checksum = "2d1ccd92ba75bf41b8f357c0ed1c74c64d6361a3b22303872d89197cda291e42"
 
 [[package]]
 name = "scopeguard"
