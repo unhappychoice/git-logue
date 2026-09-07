@@ -255,19 +255,25 @@ jobs:
 
       - name: Update Homebrew formula
         run: |
+          set -euo pipefail
+
+          fetch_sha() {
+            curl -fsSL --retry 3 --retry-delay 5 "$1" | sha256sum | cut -d' ' -f1
+          }
+
           VERSION=${{ needs.release.outputs.new_version }}
 
           MACOS_INTEL_URL="https://github.com/unhappychoice/gitlogue/releases/download/$VERSION/gitlogue-$VERSION-x86_64-apple-darwin.tar.gz"
-          MACOS_INTEL_SHA=$(curl -sL "$MACOS_INTEL_URL" | sha256sum | cut -d' ' -f1)
+          MACOS_INTEL_SHA=$(fetch_sha "$MACOS_INTEL_URL")
 
           MACOS_ARM_URL="https://github.com/unhappychoice/gitlogue/releases/download/$VERSION/gitlogue-$VERSION-aarch64-apple-darwin.tar.gz"
-          MACOS_ARM_SHA=$(curl -sL "$MACOS_ARM_URL" | sha256sum | cut -d' ' -f1)
+          MACOS_ARM_SHA=$(fetch_sha "$MACOS_ARM_URL")
 
           LINUX_INTEL_URL="https://github.com/unhappychoice/gitlogue/releases/download/$VERSION/gitlogue-$VERSION-x86_64-unknown-linux-gnu.tar.gz"
-          LINUX_INTEL_SHA=$(curl -sL "$LINUX_INTEL_URL" | sha256sum | cut -d' ' -f1)
+          LINUX_INTEL_SHA=$(fetch_sha "$LINUX_INTEL_URL")
 
           LINUX_ARM_URL="https://github.com/unhappychoice/gitlogue/releases/download/$VERSION/gitlogue-$VERSION-aarch64-unknown-linux-gnu.tar.gz"
-          LINUX_ARM_SHA=$(curl -sL "$LINUX_ARM_URL" | sha256sum | cut -d' ' -f1)
+          LINUX_ARM_SHA=$(fetch_sha "$LINUX_ARM_URL")
 
           echo "Calculated SHAs:"
           echo "macOS Intel: $MACOS_INTEL_SHA"
